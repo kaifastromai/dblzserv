@@ -1,0 +1,134 @@
+syntax="proto3";
+package proto;
+import "google/protobuf/empty.proto";
+
+message Player{
+    //A unique identifier for the player
+    string id=1;
+    //the session the player is currently in
+    string session_id=6;
+    string playerName=2;
+    //This identifies the player strictly in the game
+    uint32 playerFaceId=3;
+    uint32 face_image_id=4;
+    //A session admin can start and pause sessions, and also change the draw rate
+    bool is_session_admin=5;
+}
+message RegisterPlayerRq{
+    Player player=1;
+}
+
+message Session{
+    string id=1;
+    repeated string players=2;
+}
+message SessionRes{
+    repeated Session sessions=1;
+}
+
+service SessionService{
+    rpc GetActiveSessions(google.protobuf.Empty) returns (SessionRes);
+    //Join an active session
+    rpc JoinSession(JoinSessionRq) returns (google.protobuf.Empty);
+   //Start a new session that other players can join. The player who starts the session is the session admin. It then returns a Player message
+   //with the player_id field set to the player's unique identifier
+    rpc StartSession(StartSessionRq) returns (Player);
+
+    //Start the game. This can only be called by the session admin
+    rpc StartGame(StartGameRq) returns (google.protobuf.Empty);
+}
+
+message GamePrefs{
+    uint32 drawRate=1;
+    uint32 postPileSize=2;
+    uint32 scoreToWin=3;    
+    uint32 blitz_deduction=4;
+}
+message StartGameRq{
+    Player player=1;
+    GamePrefs prefs=2;
+}
+
+//Manages the possible face images that the players can choose from
+service ImageService{
+    rpc GetFaceImages(google.protobuf.Empty) returns (FaceImage);
+}
+
+message FaceImage{
+    uint32 id=1;
+   bytes image=2;
+   string content_type=3;
+}
+message StartSessionRq{
+    string playername=1;
+    uint32 face_image_id=2;
+}
+
+//Handles communication within a game session
+service GameService{
+    rpc MakePlay(Play) returns (google.protobuf.Empty);
+    //Change draw rate. Only session admin can do this
+    rpc ChangeDrawRate(ChangeDrawRateRq) returns (google.protobuf.Empty);
+    
+    //Reset draw rate to default. Only session admin can do this
+    rpc ResetDrawRate(ResetDrawRateRq) returns (google.protobuf.Empty);
+    rpc PauseGame(Player) returns (google.protobuf.Empty);
+    rpc ResumeGame(Player) returns (google.protobuf.Empty);
+}
+//Messages the server needs to send to connected clients/players
+service PlayerService{
+    rpc PauseGame(google.protobuf.Empty) returns (google.protobuf.Empty);
+    rpc ResumeGame(google.protobuf.Empty) returns (google.protobuf.Empty);
+    //This sent whenever another player makes a play so the client can update the game state
+    rpc MakePlay(Play) returns (google.protobuf.Empty);
+    rpc ChangeDrawRate(ChangeDrawRateRq) returns (google.protobuf.Empty);
+    rpc ResetDrawRate(ResetDrawRateRq) returns (google.protobuf.Empty);
+
+}
+message ChangeDrawRateRq{
+    Player player=4;
+    uint32 drawRate=2;
+}
+message ResetDrawRateRq{
+    Player player=4;
+
+}
+
+enum ArenaPlayType{
+    FROM_AVAILABLE_HAND=0;
+    FROM_BLITZ=1;
+    FROM_POST=2;
+ }
+ enum PlayerPlayType{
+    BLITZ_TO_POST=0;
+    AVAILABLE_HAND_TO_POST=1;
+    TRANSFER_TO_AVAILABLE_HAND=2;
+    RESET_HAND=3;
+ }
+ message ArenaPlay{
+    ArenaPlayType playType=1;
+    optional uint32 fromIndex=2;
+    optional uint32 toIndex=3;
+ }
+ message PlayerPlay{
+    PlayerPlayType playType=1;
+    optional uint32 postIndex=2;
+   
+ }
+ message CallBlitz{
+    uint32 playerIndex=2;
+ }
+//an enum representing the types of plays that can be made
+message Play{
+    oneof play{
+       ArenaPlay arenaPlay=1;
+       PlayerPlay playerPlay=2;
+        CallBlitz callBlitz=3;
+    }
+  Player player=4;
+    
+}
+message JoinSessionRq{
+    string session_id=1;
+    Player player =2;
+}

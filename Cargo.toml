@@ -1,7 +1,16 @@
 [package]
-name = "dblzserv"
+name = "blitz"
 version = "0.1.0"
 edition = "2021"
+
+
+[[bin]]
+name = "blitz_srv"
+path = "src/bin/blitz_srv.rs"
+
+[[bin]]
+name = "blitz_client"
+path = "src/bin/blitz_client.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -15,6 +24,11 @@ rand = "0.8.5"
 mongodb = "2.3.1"
 bson = "2.4.0"
 dashmap = "5.4.0"
+tracing = "0.1.37"
+tracing-subscriber = "0.3.16"
+bevy = "0.9.1"
+tokio-stream = "0.1.11"
+actix-web = "4.3.1"
 
 [build-dependencies]
 tonic-build = "0.8.2"

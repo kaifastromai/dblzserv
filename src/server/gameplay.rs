@@ -1,8 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use rand::seq::SliceRandom;
 
-
-
 ///Represents a card in the game. It is very similar to normal playing cards, with some differences.
 /// Each card can have a number 1-10, a color, and a gender (boy or girl), and an id (which is associated with the 'face'/image in the original game (and in the client)).
 /// When the server is running, we maintain a stack allocated array of all possible cards, and each card is identified by its index in the array.
@@ -38,6 +36,7 @@ pub enum ArenaPlay {
     ///the post pile to take from and the arena pile to put on
     FromPost((u8, u8)),
 }
+
 ///Plays that modify the players own cards
 #[derive(Clone, Copy, Debug)]
 pub enum PlayerPlay {
@@ -147,14 +146,12 @@ impl GameState {
                 .map(|(i, _c)| i as u32)
                 .collect();
             shuffle(&mut player_cards);
-            let post_pile_stubs = player_cards
+
+            let post_piles = player_cards
                 .iter()
                 .skip((40 - post_pile_size) as usize)
                 .take(post_pile_size as usize)
-                .map(|i| *i)
-                .collect::<Vec<_>>();
-            let post_piles = post_pile_stubs
-                .into_iter()
+                .copied()
                 .map(|i| {
                     let card = card_context.cards[i as usize];
                     Pile::from_vec(vec![i], card.color)
@@ -164,12 +161,12 @@ impl GameState {
                 .iter()
                 .skip((40 - post_pile_size - 10) as usize)
                 .take(10)
-                .map(|i| *i)
+                .copied()
                 .collect::<Vec<_>>();
             let hand = player_cards
                 .iter()
                 .take((40 - post_pile_size - 10) as usize)
-                .map(|i| *i)
+                .copied()
                 .collect::<Vec<_>>();
             players.push(Player {
                 player_id: i,
@@ -218,14 +215,12 @@ impl GameState {
             .map(|(i, _c)| i as u32)
             .collect();
         shuffle(&mut player_cards);
-        let post_pile_stubs = player_cards
+
+        let post_piles = player_cards
             .iter()
             .skip((40 - self.post_pile_size) as usize)
             .take(self.post_pile_size as usize)
-            .map(|i| *i)
-            .collect::<Vec<_>>();
-        let post_piles = post_pile_stubs
-            .into_iter()
+            .copied()
             .map(|i| {
                 let card = self.card_context.cards[i as usize];
                 Pile::from_vec(vec![i], card.color)
@@ -235,12 +230,12 @@ impl GameState {
             .iter()
             .skip((40 - self.post_pile_size - 10) as usize)
             .take(10)
-            .map(|i| *i)
+            .copied()
             .collect::<Vec<_>>();
         let hand = player_cards
             .iter()
             .take((40 - self.post_pile_size - 10) as usize)
-            .map(|i| *i)
+            .copied()
             .collect::<Vec<_>>();
         Ok(Player {
             player_id,
@@ -332,11 +327,8 @@ impl GameState {
                         //these players get blitz_deduction points deducted from their score.
                         self.score_round();
                         //deduct points from the player
-                        self.scoreboard.add_score(
-                            self.round,
-                            p as u8,
-                            -(self.blitz_deduction as i32),
-                        );
+                        self.scoreboard
+                            .add_score(self.round, p, -(self.blitz_deduction as i32));
                     }
                 }
             }
@@ -445,12 +437,12 @@ impl Pile {
         if card.color != self.color {
             return Err(anyhow!("Card color does not match pile color"));
         }
-        let prev_card = context.get_card(self.cards[(card.number - 1) as usize] as usize)?;
+        let prev_card = context.get_card(self.cards[(self.cards.len() - 1)] as usize)?;
         //genders must not be the same
         if card.gender == prev_card.gender {
             return Err(anyhow!("Genders must alternate"));
         }
-        if 10 - card.number != self.cards.len() as u8 + 1 {
+        if card.number != (prev_card.number - 1) {
             return Err(anyhow!("Card number does not match pile counter"));
         }
 
@@ -511,6 +503,12 @@ impl Arena {
     }
 }
 
+impl Default for Arena {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 ///The player hand contains two list of cards, one that the player is currently holding, and the other a stack of available cards. The draws some amount of cards
 /// from their hand (3 or 5 usually), and then adds them to the available cards. The player can only play into the arena from the available cards.
 pub struct PlayerHand {
@@ -537,7 +535,7 @@ impl PlayerHand {
             .ok_or_else(|| anyhow!("No available cards to play"))
     }
     pub fn reset_hand(&mut self) {
-        self.in_hand.extend(self.available_to_play.drain(..));
+        self.in_hand.append(&mut self.available_to_play);
     }
     pub fn clear(&mut self) {
         self.in_hand.clear();
@@ -577,8 +575,8 @@ impl PostPile {
         let pile = self
             .piles
             .get_mut(pile_index as usize)
-            .ok_or(anyhow!("Pile index out of bounds"))?;
-        let card = pile.cards.pop().ok_or(anyhow!("Pile is empty"))?;
+            .ok_or_else(|| anyhow!("Pile index out of bounds"))?;
+        let card = pile.cards.pop().ok_or_else(|| anyhow!("Pile is empty"))?;
 
         if pile.cards.is_empty() {
             self.piles.remove(pile_index as usize);
@@ -587,6 +585,12 @@ impl PostPile {
     }
     pub fn clear(&mut self) {
         self.piles.clear();
+    }
+}
+
+impl Default for PostPile {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -600,7 +604,10 @@ impl BlitzPile {
     }
     ///Play the top card from the blitz pile.
     pub fn play(&mut self) -> Result<u32> {
-        let card = self.cards.pop().ok_or(anyhow!("Blitz pile is empty"))?;
+        let card = self
+            .cards
+            .pop()
+            .ok_or_else(|| anyhow!("Blitz pile is empty"))?;
         Ok(card)
     }
     pub fn can_call_blitz(&self) -> bool {
@@ -652,7 +659,6 @@ pub fn generate_all_card(players: u32) -> Vec<Card> {
             };
         }
     }
-
     cards
 }
 #[cfg(test)]

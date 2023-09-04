@@ -1,9 +1,9 @@
 //!A simple server for Deblitz, a shameless rip off of Dutch Blitz but as a video game.
-use blitz::{proto, server};
-use tonic::transport::Server;
 
-use tracing::{debug, info};
+use blitz::server::*;
+use tracing::info;
 use tracing_subscriber;
+
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
 
 #[get("/")]
@@ -13,11 +13,20 @@ async fn hello() -> impl Responder {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let addr = "0.0.0.0:50051".parse()?;
-    HttpServer::new(|| App::new().service(hello))
-        .bind(addr)?
-        .run()
-        .await?;
-    
+    tracing_subscriber::fmt::init();
+    let data = web::Data::new(blitz::server::Server::new());
+    let addr = "0.0.0.0:50055";
+    info!("Starting server on {}", addr);
+    HttpServer::new(move || {
+        App::new().app_data(data.clone()).service(
+            web::scope("/api")
+                .service(create_session)
+                .service(join_session)
+                .service(show_sessions),
+        )
+    })
+    .bind(addr)?
+    .run()
+    .await?;
     Ok(())
 }

@@ -1,5 +1,3 @@
-pub mod bevy;
-pub mod proto;
 pub mod server;
 
 use anyhow::{anyhow, Context, Result};
@@ -10,8 +8,8 @@ use rand::seq::SliceRandom;
 /// When the server is running, we maintain a stack allocated array of all possible cards, and each card is identified by its index in the array.
 #[derive(Clone, Copy, Debug)]
 pub struct Card {
-    pub player_id: u8,
-    pub number: u8,
+    pub player_id: u32,
+    pub number: u32,
     pub color: Color,
     pub gender: Gender,
 }
@@ -30,34 +28,34 @@ pub enum EPlay {
     PlayerPlay(PlayerPlay),
     ///Calls blitz. If called by a player and another player can call blitz (their blitz pile is empty) but has not, then
     /// the player on which blitz was called loses 10 points.
-    CallBlitz(u8),
+    CallBlitz(u32),
 }
 #[derive(Clone, Copy, Debug)]
 ///Plays that transfer cards from a player's hand to the arena.
 pub enum ArenaPlay {
-    FromAvailableHand(u8),
-    FromBlitz(u8),
+    FromAvailableHand(u32),
+    FromBlitz(u32),
     ///the post pile to take from and the arena pile to put on
-    FromPost((u8, u8)),
+    FromPost((u32, u32)),
 }
 
 ///Plays that modify the players own cards
 #[derive(Clone, Copy, Debug)]
 pub enum PlayerPlay {
-    BlitzToPost(u8),
-    AvailableToPost(u8),
+    BlitzToPost(u32),
+    AvailableToPost(u32),
     TransferToAvailable,
     ResetHand,
 }
 ///Represents the types of plays that can be made by a player.
 #[derive(Clone, Copy, Debug)]
 pub struct Play {
-    pub player: u8,
+    pub player: u32,
     pub play: EPlay,
 }
 ///A represents a player in the game.
 pub struct Player {
-    pub player_id: u8,
+    pub player_id: u32,
     pub hand: PlayerHand,
     pub post_pile: PostPile,
     pub blitz_pile: BlitzPile,
@@ -69,11 +67,11 @@ impl Player {
 }
 
 pub struct GameStateBuilder {
-    pub draw_rate: u8,
-    pub post_pile_size: u8,
-    pub player_count: u8,
-    pub score_to_win: u16,
-    pub blitz_deduction: u16,
+    pub draw_rate: u32,
+    pub post_pile_size: u32,
+    pub player_count: u32,
+    pub score_to_win: u32,
+    pub blitz_deduction: u32,
 }
 impl GameStateBuilder {
     pub fn new() -> Self {
@@ -85,23 +83,23 @@ impl GameStateBuilder {
             blitz_deduction: 10,
         }
     }
-    pub fn with_draw_rate(mut self, draw_rate: u8) -> Self {
+    pub fn with_draw_rate(mut self, draw_rate: u32) -> Self {
         self.draw_rate = draw_rate;
         self
     }
-    pub fn with_post_pile_size(mut self, post_pile_size: u8) -> Self {
+    pub fn with_post_pile_size(mut self, post_pile_size: u32) -> Self {
         self.post_pile_size = post_pile_size;
         self
     }
-    pub fn with_player_count(mut self, player_count: u8) -> Self {
+    pub fn with_player_count(mut self, player_count: u32) -> Self {
         self.player_count = player_count;
         self
     }
-    pub fn with_score_to_win(mut self, score_to_win: u16) -> Self {
+    pub fn with_score_to_win(mut self, score_to_win: u32) -> Self {
         self.score_to_win = score_to_win;
         self
     }
-    pub fn with_blitz_deduction(mut self, blitz_deduction: u16) -> Self {
+    pub fn with_blitz_deduction(mut self, blitz_deduction: u32) -> Self {
         self.blitz_deduction = blitz_deduction;
         self
     }
@@ -109,29 +107,35 @@ impl GameStateBuilder {
         GameState::from_build(self)
     }
 }
+
+impl Default for GameStateBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 pub struct GameState {
-    pub round: u8,
+    pub round: u32,
     pub scoreboard: Scoreboard,
     pub card_context: CardContext,
     pub players: Vec<Player>,
     pub arena: Arena,
-    pub draw_rate: u8,
-    pub post_pile_size: u8,
+    pub draw_rate: u32,
+    pub post_pile_size: u32,
     ///The score a player needs to win the game. Usually 72
-    pub score_to_win: u16,
-    pub blitz_deduction: u16,
-    default_draw_rate: u8,
+    pub score_to_win: u32,
+    pub blitz_deduction: u32,
+    default_draw_rate: u32,
+    is_game_over: bool,
 }
-
 impl GameState {
     pub fn new(
-        draw_rate: u8,
-        post_pile_size: u8,
-        player_count: u8,
-        score_to_win: u16,
-        blitz_deduction: u16,
+        draw_rate: u32,
+        post_pile_size: u32,
+        player_count: u32,
+        score_to_win: u32,
+        blitz_deduction: u32,
     ) -> Result<GameState> {
-        let cards = generate_all_card(player_count as u32);
+        let cards = generate_all_card(player_count);
         let card_context = CardContext::new(cards);
         //Once we have all the cards, we need to get player hands.
         let mut players = Vec::new();
@@ -193,6 +197,7 @@ impl GameState {
             score_to_win,
             blitz_deduction,
             default_draw_rate: draw_rate,
+            is_game_over: false,
         })
     }
 
@@ -205,7 +210,7 @@ impl GameState {
             builder.blitz_deduction,
         )
     }
-    pub fn create_player(&self, player_id: u8) -> Result<Player> {
+    pub fn create_player(&self, player_id: u32) -> Result<Player> {
         //each player gets a 40 card hand. From the hand post_pile_size cards are removed and placed in the post pile,
         // 10 cards are removed and placed in the blitz pile.
         //the rest of the cards are placed in the player's hand.
@@ -261,7 +266,7 @@ impl GameState {
         }
         //create new players
         self.players = (0..self.players.len())
-            .map(|i| self.create_player(i as u8).unwrap())
+            .map(|i| self.create_player(i as u32).unwrap())
             .collect();
         Ok(())
     }
@@ -294,10 +299,10 @@ impl GameState {
                             &mut self.card_context,
                         )?;
                     }
-                    PlayerPlay::AvailableToPost(u8) => {
+                    PlayerPlay::AvailableToPost(u32) => {
                         let cards = self.players[player as usize].hand.play_from_available()?;
                         self.players[player as usize].post_pile.add_card(
-                            u8,
+                            u32,
                             cards,
                             &mut self.card_context,
                         )?;
@@ -319,12 +324,12 @@ impl GameState {
                     self.score_round();
                     self.new_round()?;
                 } else {
-                    let blitzed_players: Vec<u8> = self
+                    let blitzed_players: Vec<u32> = self
                         .players
                         .iter()
                         .enumerate()
                         .filter(|(i, p)| p.can_call_blitz() && *i != player as usize)
-                        .map(|(i, _)| i as u8)
+                        .map(|(i, _)| i as u32)
                         .collect();
 
                     for p in blitzed_players {
@@ -340,7 +345,7 @@ impl GameState {
         Ok(())
     }
 
-    ///Counts up all the cards in the arena, and gives players points depending upon how many cards the played. Called at the end of a round (when blitz is called).
+    ///Counts up all the cards in the arena, and gives players points depending upon how many cards they played. Called at the end of a round (when blitz is called).
     /// We also count up how many cards are left in the blitz pile and subtract 2* that number from the player's score.
     pub fn score_round(&mut self) {
         let mut player_arena_scores = vec![0; self.players.len()];
@@ -360,9 +365,17 @@ impl GameState {
             .zip(blitz_scores.iter())
             .map(|(a, b)| a + b)
             .collect();
-        self.scoreboard.add_round(self.round, player_arena_scores)
+        self.scoreboard.add_round(self.round, player_arena_scores);
+        //if any player has a score equal to or greater than the win score, the game is over.
+        let player_total_scores = self.scoreboard.get_totals();
+        if player_total_scores
+            .iter()
+            .any(|s| *s >= self.score_to_win as i32)
+        {
+            self.is_game_over = true;
+        }
     }
-    pub fn change_draw_rate(&mut self, new_rate: u8) {
+    pub fn change_draw_rate(&mut self, new_rate: u32) {
         self.draw_rate = new_rate;
     }
     pub fn reset_draw_rate(&mut self) {
@@ -375,7 +388,7 @@ pub struct Scoreboard {
     pub scores: Vec<Vec<i32>>,
 }
 impl Scoreboard {
-    pub fn new(player_count: u8) -> Scoreboard {
+    pub fn new(player_count: u32) -> Scoreboard {
         let mut scores = Vec::new();
         scores.reserve(player_count as usize);
         for _ in 0..player_count {
@@ -391,12 +404,12 @@ impl Scoreboard {
         }
         totals
     }
-    pub fn add_round(&mut self, _round: u8, scores: Vec<i32>) {
+    pub fn add_round(&mut self, _round: u32, scores: Vec<i32>) {
         for (i, score) in scores.iter().enumerate() {
             self.scores[i].push(*score);
         }
     }
-    pub fn add_score(&mut self, round: u8, player: u8, score: i32) {
+    pub fn add_score(&mut self, round: u32, player: u32, score: i32) {
         self.scores[round as usize][player as usize] += score;
     }
 }
@@ -420,7 +433,7 @@ impl Pile {
             return Err(anyhow!("Card color does not match pile color"));
         }
         let number = context.get_card(card_index as usize)?.number;
-        if number != (self.cards.len() + 1) as u8 {
+        if number != (self.cards.len() + 1) as u32 {
             return Err(anyhow!(
                 "Card number {} does not match pile counter {}",
                 number,
@@ -456,7 +469,7 @@ impl Pile {
     }
 }
 
-///The context imporantly holds all the created cards
+///The context importantly holds all the created cards
 pub struct CardContext {
     cards: Vec<Card>,
 }
@@ -483,7 +496,7 @@ impl Arena {
     }
     pub fn add_card(
         &mut self,
-        pile_index: u8,
+        pile_index: u32,
         card_index: u32,
         context: &mut CardContext,
     ) -> Result<()> {
@@ -513,8 +526,8 @@ impl Default for Arena {
     }
 }
 
-///The player hand contains two list of cards, one that the player is currently holding, and the other a stack of available cards. The draws some amount of cards
-/// from their hand (3 or 5 usually), and then adds them to the available cards. The player can only play into the arena from the available cards.
+///The player hand contains two list of cards, one that the player is currently holding, and the other a stack of available cards.
+/// They draw some amount of cards from their hand (3 usually), and then adds them to the available cards. The player can only play into the arena from the available cards.
 pub struct PlayerHand {
     pub in_hand: Vec<u32>,
     pub available_to_play: Vec<u32>,
@@ -527,12 +540,14 @@ impl PlayerHand {
         }
     }
     ///Transfers from in hand to the available_to_play pile.
-    pub fn transfer_hand_to_available(&mut self, count: u8) -> Vec<u32> {
+    pub fn transfer_hand_to_available(&mut self, count: u32) -> Vec<u32> {
         let drawn = self.in_hand.drain(..count as usize);
         let vals: Vec<u32> = drawn.collect();
         self.available_to_play.extend(vals.iter());
         vals
     }
+    ///Plays a card from the available pile, and returns the index of the card.
+    /// If there are no cards in the available pile, returns an error.
     pub fn play_from_available(&mut self) -> Result<u32> {
         self.available_to_play
             .pop()
@@ -540,6 +555,7 @@ impl PlayerHand {
     }
     pub fn reset_hand(&mut self) {
         self.in_hand.append(&mut self.available_to_play);
+        self.in_hand.clear();
     }
     pub fn clear(&mut self) {
         self.in_hand.clear();
@@ -568,14 +584,14 @@ impl PostPile {
     }
     pub fn add_card(
         &mut self,
-        pile_index: u8,
+        pile_index: u32,
         card_index: u32,
         context: &mut CardContext,
     ) -> Result<()> {
         self.piles[pile_index as usize].add_post_card(card_index, context)
     }
     ///Plays the top card from the post pile. If the card is the last card in the pile, the pile is removed.
-    pub fn play(&mut self, pile_index: u8) -> Result<u32> {
+    pub fn play(&mut self, pile_index: u32) -> Result<u32> {
         let pile = self
             .piles
             .get_mut(pile_index as usize)
@@ -598,7 +614,7 @@ impl Default for PostPile {
     }
 }
 
-///The BlitzPile is a pile of 10 cards delt from the players main hand at the start of the game. If the player gets rid of all the cards in the blitz pile, the round ends.
+///The BlitzPile is a pile of 10 cards dealt from the players main hand at the start of the game. If the player gets rid of all the cards in the blitz pile, the round ends.
 pub struct BlitzPile {
     pub cards: Vec<u32>,
 }
@@ -652,8 +668,8 @@ pub fn generate_all_card(players: u32) -> Vec<Card> {
     for player in 0..players {
         for n in 0..40 {
             cards[(n + 40 * player) as usize] = Card {
-                player_id: player as u8,
-                number: (n % 10 + 1) as u8,
+                player_id: player as u32,
+                number: (n % 10 + 1) as u32,
                 color: colors[((n) / 10) as usize],
                 gender: match n % 2 {
                     0 => Gender::Boy,
@@ -666,4 +682,3 @@ pub fn generate_all_card(players: u32) -> Vec<Card> {
 
     cards
 }
-

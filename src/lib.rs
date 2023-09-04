@@ -402,7 +402,7 @@ impl Scoreboard {
         let mut scores = Vec::new();
         scores.reserve(player_count as usize);
         for _ in 0..player_count {
-            scores.push(vec![0]);
+            scores.push(vec![]);
         }
         Scoreboard { scores }
     }
@@ -581,7 +581,7 @@ impl PlayerHand {
 
 ///the post pile is a set of 3 or 5 piles.
 /// In a game of 3 or less players, there are usually 5 post piles, but in a game of 4 or more players, there are 3.
-/// Players can stack cards on the post pile, but it must go in decreasing order and the genders must swap
+/// Players can stack cards on the post pile, but it must go in descending order and the genders must swap
 pub struct PostPile {
     pub piles: Vec<Pile>,
 }
@@ -647,9 +647,8 @@ impl BlitzPile {
         self.cards.clear();
     }
 }
-///The are only four colors in the game: red, blue, green, and yellow.
+///There are only four colors in the game: red, blue, green, and yellow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-
 pub enum Color {
     Red,
     Blue,

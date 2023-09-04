@@ -5,7 +5,7 @@ use rand::seq::SliceRandom;
 
 ///Represents a card in the game. It is very similar to normal playing cards, with some differences.
 /// Each card can have a number 1-10, a color, and a gender (boy or girl), and an id (which is associated with the 'face'/image in the original game (and in the client)).
-/// When the server is running, we maintain a stack allocated array of all possible cards, and each card is identified by its index in the array.
+/// When the server is running, we maintain an array of all possible cards, and each card is identified by its index in the array.
 #[derive(Clone, Copy, Debug)]
 pub struct Card {
     pub player_id: u32,
@@ -23,20 +23,24 @@ pub fn shuffle(cards: &mut Vec<u32>) -> &mut Vec<u32> {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum EPlay {
-    Arena(ArenaPlay),
-    PlayerPlay(PlayerPlay),
+pub enum Action {
+    Arena(ArenaAction),
+    Player(PlayerPlay),
     ///Calls blitz. If called by a player and another player can call blitz (their blitz pile is empty) but has not, then
     /// the player on which blitz was called loses 10 points.
     CallBlitz(u32),
 }
 #[derive(Clone, Copy, Debug)]
 ///Plays that transfer cards from a player's hand to the arena.
-pub enum ArenaPlay {
+pub enum ArenaAction {
     FromAvailableHand(u32),
     FromBlitz(u32),
+
     ///the post pile to take from and the arena pile to put on
-    FromPost((u32, u32)),
+    FromPost {
+        post_pile: u32,
+        arena_pile: u32,
+    },
 }
 
 ///Plays that modify the players own cards
@@ -51,9 +55,9 @@ pub enum PlayerPlay {
 #[derive(Clone, Copy, Debug)]
 pub struct Play {
     pub player: u32,
-    pub play: EPlay,
+    pub play: Action,
 }
-///A represents a player in the game.
+///represents a player in the game.
 pub struct Player {
     pub player_id: u32,
     pub hand: PlayerHand,
@@ -121,8 +125,9 @@ pub struct GameState {
     pub arena: Arena,
     pub draw_rate: u32,
     pub post_pile_size: u32,
-    ///The score a player needs to win the game. Usually 72
+    ///The score a player needs to win the game. Defaults to 72
     pub score_to_win: u32,
+    ///Amount of points to deduct if someone calls blitz on a player who can call blitz but has not.xs
     pub blitz_deduction: u32,
     default_draw_rate: u32,
     is_game_over: bool,
@@ -274,21 +279,26 @@ impl GameState {
     pub fn make_play(&mut self, play: Play) -> Result<()> {
         let player = play.player;
         match play.play {
-            EPlay::Arena(p) => match p {
-                ArenaPlay::FromAvailableHand(pile) => {
+            Action::Arena(p) => match p {
+                ArenaAction::FromAvailableHand(pile) => {
                     let card = self.players[player as usize].hand.play_from_available()?;
                     self.arena.add_card(pile, card, &mut self.card_context)?;
                 }
-                ArenaPlay::FromBlitz(pile) => {
+                ArenaAction::FromBlitz(pile) => {
                     let card = self.players[player as usize].blitz_pile.play()?;
                     self.arena.add_card(pile, card, &mut self.card_context)?;
                 }
-                ArenaPlay::FromPost((post, pile)) => {
-                    let card = self.players[player as usize].post_pile.play(post)?;
-                    self.arena.add_card(pile, card, &mut self.card_context)?;
+
+                ArenaAction::FromPost {
+                    post_pile,
+                    arena_pile,
+                } => {
+                    let card = self.players[player as usize].post_pile.play(post_pile)?;
+                    self.arena
+                        .add_card(arena_pile, card, &mut self.card_context)?;
                 }
             },
-            EPlay::PlayerPlay(p) => {
+            Action::Player(p) => {
                 match p {
                     PlayerPlay::BlitzToPost(p) => {
                         let blitz_card = self.players[player as usize].blitz_pile.play()?;
@@ -317,8 +327,8 @@ impl GameState {
                     }
                 }
             }
-            EPlay::CallBlitz(_p) => {
-                //when blitz is called,we count up all the cards in the arena, and give players points depending upon how many cards the played.
+            Action::CallBlitz(_p) => {
+                //when blitz is called,we count up all the cards in the arena, and give players points depending upon how many cards they played.
                 if self.players[player as usize].can_call_blitz() {
                     //everything is normal, new round
                     self.score_round();
@@ -334,11 +344,11 @@ impl GameState {
 
                     for p in blitzed_players {
                         //these players get blitz_deduction points deducted from their score.
-                        self.score_round();
                         //deduct points from the player
                         self.scoreboard
                             .add_score(self.round, p, -(self.blitz_deduction as i32));
                     }
+                    self.score_round();
                 }
             }
         };
@@ -429,22 +439,22 @@ impl Pile {
             return Err(anyhow!("Pile is full"));
         }
 
-        if context.get_card(card_index as usize)?.color != self.color {
+        let card = context.get_card(card_index as usize)?;
+        if card.color != self.color {
             return Err(anyhow!("Card color does not match pile color"));
         }
-        let number = context.get_card(card_index as usize)?.number;
-        if number != (self.cards.len() + 1) as u32 {
+
+        if card.number != (self.cards.len() + 1) as u32 {
             return Err(anyhow!(
                 "Card number {} does not match pile counter {}",
-                number,
+                card.number,
                 self.cards.len()
             ));
         }
         self.cards.push(card_index);
-
         Ok(())
     }
-    ///When stacking on the blitz pile, the card must be the same color, be the natural anteceeding number,and the gender must be the opposite of the previous card.
+    ///When stacking on the post pile, the card must be the same color, the natural anteceeding number,and the gender must be the opposite of the previous card.
     pub fn add_post_card(&mut self, card_index: u32, context: &mut CardContext) -> Result<()> {
         if self.cards.len() == 10 {
             return Err(anyhow!("Pile is full"));
@@ -469,7 +479,7 @@ impl Pile {
     }
 }
 
-///The context importantly holds all the created cards
+///The context holds all the created cards
 pub struct CardContext {
     cards: Vec<Card>,
 }

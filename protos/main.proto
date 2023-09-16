@@ -60,37 +60,39 @@ message FaceImage{
    string content_type=3;
 }
 message StartSessionRq{
-    string playername=1;
+    string player_name=1;
     uint32 face_image_id=2;
 }
 
+message ServerStateUpdateEvent{
+    
+
+}
+message 
+message ServerEvent{
+    oneof event{
+        Play play=1;
+    }
+}
 //Handles communication within a game session
 service GameService{
     rpc MakePlay(Play) returns (google.protobuf.Empty);
     //Change draw rate. Only session admin can do this
     rpc ChangeDrawRate(ChangeDrawRateRq) returns (google.protobuf.Empty);
-    
     //Reset draw rate to default. Only session admin can do this
     rpc ResetDrawRate(ResetDrawRateRq) returns (google.protobuf.Empty);
     rpc PauseGame(Player) returns (google.protobuf.Empty);
     rpc ResumeGame(Player) returns (google.protobuf.Empty);
+    //Open an event stream that the allows the server to send events to the client whenever the game state changes
+    rpc OpenServerEventStream(stream ServerEvent) returns (google.protobuf.Empty);
 }
-//Messages the server needs to send to connected clients/players
-service PlayerService{
-    rpc PauseGame(google.protobuf.Empty) returns (google.protobuf.Empty);
-    rpc ResumeGame(google.protobuf.Empty) returns (google.protobuf.Empty);
-    //This sent whenever another player makes a play so the client can update the game state
-    rpc MakePlay(Play) returns (google.protobuf.Empty);
-    rpc ChangeDrawRate(ChangeDrawRateRq) returns (google.protobuf.Empty);
-    rpc ResetDrawRate(ResetDrawRateRq) returns (google.protobuf.Empty);
 
-}
 message ChangeDrawRateRq{
-    Player player=4;
+   string player_id=1;
     uint32 drawRate=2;
 }
 message ResetDrawRateRq{
-    Player player=4;
+   string player_id=1;
 
 }
 
@@ -125,7 +127,7 @@ message Play{
        PlayerPlay playerPlay=2;
         CallBlitz callBlitz=3;
     }
-  Player player=4;
+  string player_id=4;
     
 }
 message JoinSessionRq{

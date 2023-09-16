@@ -1,11 +1,9 @@
-//!A simple server for Deblitz, a shameless rip off of Dutch Blitz but as a video game.
+//!A simple server for "blitz!", a shameless rip off of Dutch Blitz but as a video game.
 
+use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
 use blitz::server::*;
 use tracing::info;
 use tracing_subscriber;
-
-use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
-
 #[get("/")]
 async fn hello() -> impl Responder {
     HttpResponse::Ok().body("Hello world!")

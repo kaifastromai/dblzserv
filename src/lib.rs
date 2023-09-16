@@ -25,7 +25,7 @@ pub fn shuffle(cards: &mut Vec<u32>) -> &mut Vec<u32> {
 #[derive(Clone, Copy, Debug)]
 pub enum Action {
     Arena(ArenaAction),
-    Player(PlayerPlay),
+    Player(PlayerAction),
     ///Calls blitz. If called by a player and another player can call blitz (their blitz pile is empty) but has not, then
     /// the player on which blitz was called loses 10 points.
     CallBlitz(u32),
@@ -45,7 +45,7 @@ pub enum ArenaAction {
 
 ///Plays that modify the players own cards
 #[derive(Clone, Copy, Debug)]
-pub enum PlayerPlay {
+pub enum PlayerAction {
     BlitzToPost(u32),
     AvailableToPost(u32),
     TransferToAvailable,
@@ -300,7 +300,7 @@ impl GameState {
             },
             Action::Player(p) => {
                 match p {
-                    PlayerPlay::BlitzToPost(p) => {
+                    PlayerAction::BlitzToPost(p) => {
                         let blitz_card = self.players[player as usize].blitz_pile.play()?;
                         //add to post pile at position p
                         self.players[player as usize].post_pile.add_card(
@@ -309,7 +309,7 @@ impl GameState {
                             &mut self.card_context,
                         )?;
                     }
-                    PlayerPlay::AvailableToPost(u32) => {
+                    PlayerAction::AvailableToPost(u32) => {
                         let cards = self.players[player as usize].hand.play_from_available()?;
                         self.players[player as usize].post_pile.add_card(
                             u32,
@@ -317,12 +317,12 @@ impl GameState {
                             &mut self.card_context,
                         )?;
                     }
-                    PlayerPlay::TransferToAvailable => {
+                    PlayerAction::TransferToAvailable => {
                         self.players[player as usize]
                             .hand
                             .transfer_hand_to_available(self.draw_rate);
                     }
-                    PlayerPlay::ResetHand => {
+                    PlayerAction::ResetHand => {
                         self.players[player as usize].hand.reset_hand();
                     }
                 }
@@ -415,8 +415,8 @@ impl Scoreboard {
         totals
     }
     pub fn add_round(&mut self, _round: u32, scores: Vec<i32>) {
-        for (i, score) in scores.iter().enumerate() {
-            self.scores[i].push(*score);
+        for (i, score) in scores.into_iter().enumerate() {
+            self.scores[i].push(score);
         }
     }
     pub fn add_score(&mut self, round: u32, player: u32, score: i32) {
@@ -662,7 +662,7 @@ pub enum Gender {
     Girl,
 }
 
-///Genearte all possible cards for this game give the player count.
+///Genearte all possible cards for this game given the player count.
 pub fn generate_all_card(players: u32) -> Vec<Card> {
     let colors = [Color::Red, Color::Blue, Color::Green, Color::Yellow];
     let mut cards = vec![

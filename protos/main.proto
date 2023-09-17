@@ -86,6 +86,9 @@ message StartSessionRq{
 message ClientInitOpenStream{
     string session_id=1;
 }
+message ChangeDrawRateEvent{
+    uint32 new_rate=1;
+}
 message ClientEvent{
     //The id of this event. When the server makes a response to this event, it will include this id. This allows the client to match the response to the request
     //This must be unique for each event for each player
@@ -99,6 +102,7 @@ message ClientEvent{
         ClientInitOpenStream openStream=5;
         //Start the game. Closes this session from accepting new players. Must be called by the session admin
         StartGameEvent startGame=6;
+        ChangeDrawRateEvent changeDrawRate=7;
 
     }
 
@@ -106,7 +110,6 @@ message ClientEvent{
 enum ClientGameStateAction{
     PAUSE_GAME=0;
     RESUME_GAME=1;
-    CHANGE_DRAW_RATE=2;
     RESET_DRAW_RATE=3;
 }
 message ArenaStateChange{
@@ -146,6 +149,7 @@ message Acknowledge{
 }
 message ServerStartGameEvent{
     GamePrefs prefs=1;
+    GlobalDeck globalDeck=2;
 
 }
 message GameStateChange{
@@ -156,7 +160,7 @@ message GameStateChange{
 enum ServerGameStateAction{
     SERVER_PAUSE_GAME=0;
     SERVER_RESUME_GAME=1;
-    SERVER_CHANGE_DRAW_RATE=2;
+    
     SERVER_GAME_OVER=3;
     SERVER_NEW_ROUND=4;
 }
@@ -166,6 +170,7 @@ message ServerEvent{
         Acknowledge acknowledge=3;
         ServerGameStateAction serverGameStateAction=5;
         ServerStartGameEvent startGame=4;
+        ChangeDrawRateEvent changeDrawRate=6;
       
     }
 }

@@ -51,7 +51,7 @@ pub struct Session {
     >,
 }
 impl Session {
-    pub fn start_game(&mut self, rq: StartGameEvent) -> anyhow::Result<()> {
+    pub fn start_game(&mut self, rq: StartGameEvent) -> anyhow::Result<Vec<proto::Card>> {
         let player = rq.player.unwrap();
         if !player.is_session_admin {
             return Err(ah::anyhow!("Player is not admin"));
@@ -64,7 +64,21 @@ impl Session {
             GameState::new(self.players.len() as u32, rq.prefs.unwrap())
                 .with_context(|| "Failed to create game state")?,
         );
-        Ok(())
+        let global_deck = self
+            .game_state
+            .as_ref()
+            .unwrap()
+            .card_context
+            .cards
+            .iter()
+            .map(|e| proto::Card {
+                player_id: e.player_id,
+                number: e.number,
+                color: e.color as i32,
+                gender: e.gender as i32,
+            })
+            .collect();
+        Ok(global_deck)
     }
 }
 impl TryFrom<proto::Play> for crate::Play {
@@ -183,6 +197,99 @@ impl Server {
                 match e {
                     client_event::Event::Play(p) => {
                         tracing::info!(player_id, event_id, "Play event received. Event: {p:?}");
+                        if let Some(mut session) = session_arc.get_mut(&session_id) {
+                            if let Some(g) = session.game_state.as_mut() {
+                                let event = g.make_play(p.try_into().unwrap()).into_tonic_status();
+                                if let Err(e) = &event {
+                                    //send an error back to the player that sent this
+                                    tracing::error!(session_id, player_id, "Could not play!");
+                                    let event = tonic::Status::unknown("Could not make play!");
+                                    Self::send_event_to_client(Err(event), &session, player_id)
+                                        .await
+                                        .with_context(|| {
+                                            tracing::error!(
+                                                session_id,
+                                                player_id,
+                                                "Could not send event to client"
+                                            );
+                                            "Could not send event to client"
+                                        })
+                                        .unwrap();
+                                }
+                                //broadcast event to clients
+                                Self::broadcast_event(event, &session, player_id, event_id)
+                                    .await
+                                    .with_context(|| {
+                                        tracing::error!("Could not send events to all clients");
+                                        "Could not send sevents to all events"
+                                    })
+                                    .unwrap();
+                            } else {
+                                tracing::error!("Game not started. This should not be possible");
+                                continue;
+                            }
+                        } else {
+                            tracing::warn!(session_id, "Session does not exist");
+                            continue;
+                        }
+                    }
+                    client_event::Event::ChangeDrawRate(c) => {
+                        tracing::info!(
+                            player_id,
+                            event_id,
+                            "Change draw rate event received. Event: {c:?}"
+                        );
+                        if let Some(mut session) = session_arc.get_mut(&session_id) {
+                            if let Some(g) = session.game_state.as_mut() {
+                                g.change_draw_rate(c.new_rate);
+                                let event =
+                                    Ok(server_event::Event::ChangeDrawRate(ChangeDrawRateEvent {
+                                        new_rate: c.new_rate,
+                                    }));
+
+                                //broadcast event to clients
+                                Self::broadcast_event(event, &session, player_id, event_id)
+                                    .await
+                                    .with_context(|| {
+                                        tracing::error!("Could not send events to all clients");
+                                        "Could not send sevents to all events"
+                                    })
+                                    .unwrap();
+                            } else {
+                                tracing::error!("Game not started. This should not be possible");
+                                //send an error back to the player that sent this
+                                let event = tonic::Status::failed_precondition("Game not started!");
+                                Self::send_event_to_client(Err(event), &session, player_id)
+                                    .await
+                                    .with_context(|| {
+                                        tracing::error!(
+                                            session_id,
+                                            player_id,
+                                            "Could not send event to client"
+                                        );
+                                        "Could not send event to client"
+                                    })
+                                    .unwrap();
+                                continue;
+                            }
+                        } else {
+                            tracing::warn!(session_id, "Session does not exist");
+                            //send an error back to the player that sent this
+                            let event = tonic::Status::not_found("Session does not exist!");
+                            if let Some(session) = session_arc.get_mut(&session_id) {
+                                Self::send_event_to_client(Err(event), &session, player_id)
+                                    .await
+                                    .with_context(|| {
+                                        tracing::error!(
+                                            session_id,
+                                            player_id,
+                                            "Could not send event to client"
+                                        );
+                                        "Could not send event to client"
+                                    })
+                                    .unwrap();
+                            }
+                        }
                     }
                     client_event::Event::StaticEvent(s) => {
                         let client_game_state_action: ClientGameStateAction = s.try_into().unwrap();
@@ -191,9 +298,62 @@ impl Server {
                             event_id,
                             "Static event received. Event: {client_game_state_action:?}"
                         );
+                        if let Some(mut session) = session_arc.get_mut(&session_id) {
+                            if player_id != 0 {
+                                tracing::warn!("Only the session admin can call this event");
+                                let e = Err(tonic::Status::failed_precondition(
+                                    "Only the server admin can send these events!",
+                                ));
+                                Self::broadcast_event(e, &session, player_id, event_id)
+                                    .await
+                                    .unwrap();
+                            }
+                            let e = match client_game_state_action {
+                                ClientGameStateAction::PauseGame => {
+                                    proto::server_event::Event::ServerGameStateAction(
+                                        ServerGameStateAction::ServerPauseGame as i32,
+                                    )
+                                }
+                                ClientGameStateAction::ResumeGame => {
+                                    proto::server_event::Event::ServerGameStateAction(
+                                        ServerGameStateAction::ServerResumeGame as i32,
+                                    )
+                                }
+
+                                ClientGameStateAction::ResetDrawRate => {
+                                    if let Some(g) = session.game_state.as_mut() {
+                                        g.change_draw_rate(3)
+                                    }
+                                    proto::server_event::Event::ChangeDrawRate(
+                                        ChangeDrawRateEvent { new_rate: 3 },
+                                    )
+                                }
+                            };
+                            Self::broadcast_event(Ok(e), &session, player_id, event_id)
+                                .await
+                                .unwrap();
+                        }
                     }
+
                     client_event::Event::OpenStream(_) => {
                         tracing::warn!("OpenStream event received. This should not happen");
+                        //send an error back to the player that sent this
+                        let event = tonic::Status::failed_precondition(
+                            "OpenStream event received when channel is already open!",
+                        );
+                        if let Some(session) = session_arc.get(&session_id) {
+                            Self::send_event_to_client(Err(event), &session, player_id)
+                                .await
+                                .with_context(|| {
+                                    tracing::error!(
+                                        session_id,
+                                        player_id,
+                                        "Could not send event to client"
+                                    );
+                                    "Could not send event to client"
+                                })
+                                .unwrap();
+                        }
                     }
                     client_event::Event::StartGame(s) => {
                         tracing::info!(
@@ -208,16 +368,16 @@ impl Server {
                             continue;
                         }
                         let mut session = session_arc.get_mut(&session_id).unwrap();
-                        session
+                        let global_deck = session
                             .start_game(s.clone())
                             .with_context(|| "Failed to start game")
                             .unwrap();
                         info!(session_id = session_id, "Game started");
                         let e = server_event::Event::StartGame(ServerStartGameEvent {
                             prefs: s.prefs.clone(),
+                            global_deck: Some(proto::GlobalDeck { cards: global_deck }),
                         });
-
-                        Self::broadcast_event(e, &session, player_id, event_id)
+                        Self::broadcast_event(Ok(e), &session, player_id, event_id)
                             .await
                             .with_context(|| "Failed to broadcast event")
                             .unwrap();
@@ -227,7 +387,7 @@ impl Server {
         })
     }
     pub async fn broadcast_event(
-        event: server_event::Event,
+        event: tonic::Result<server_event::Event>,
         session: &Session,
         player_id: u32,
         event_id: u32,
@@ -246,13 +406,37 @@ impl Server {
                     .unwrap();
                     info!(player_id = player_id, "Sent acknowledgement")
                 }
-                tx.send(Ok(ServerEvent {
-                    event: Some(event.clone()),
-                }))
-                .await
-                .unwrap();
+                tx.send(event.clone().map(|e| ServerEvent { event: Some(e) }))
+                    .await
+                    .unwrap();
                 info!(player_id = player_id, "Sent event to client");
             }
+        }
+        Ok(())
+    }
+    pub async fn send_event_to_client(
+        event: tonic::Result<server_event::Event>,
+        session: &Session,
+        player_id: u32,
+    ) -> anyhow::Result<()> {
+        if let Some((tx, _)) = session
+            .client_event_channels
+            .get(player_id as usize)
+            .with_context(|| {
+                tracing::error!("Could not send event to client. Invalid player ");
+                "Could not send event to client. Invalid player "
+            })?
+            .as_ref()
+        {
+            tx.send(event.clone().map(|e| ServerEvent { event: Some(e) }))
+                .await
+                .unwrap();
+            info!(player_id = player_id, "Sent event to client");
+        } else {
+            tracing::error!(
+                player_id,
+                "Could not send event to client. Client not connected"
+            );
         }
         Ok(())
     }

@@ -104,6 +104,12 @@ pub struct ClientInitOpenStream {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ChangeDrawRateEvent {
+    #[prost(uint32, tag = "1")]
+    pub new_rate: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ClientEvent {
     /// The id of this event. When the server makes a response to this event, it will include this id. This allows the client to match the response to the request
     /// This must be unique for each event for each player
@@ -112,7 +118,7 @@ pub struct ClientEvent {
     /// The id of the player who made this event
     #[prost(uint32, tag = "4")]
     pub player_id: u32,
-    #[prost(oneof = "client_event::Event", tags = "1, 2, 5, 6")]
+    #[prost(oneof = "client_event::Event", tags = "1, 2, 5, 6, 7")]
     pub event: ::core::option::Option<client_event::Event>,
 }
 /// Nested message and enum types in `ClientEvent`.
@@ -130,6 +136,8 @@ pub mod client_event {
         /// Start the game. Closes this session from accepting new players. Must be called by the session admin
         #[prost(message, tag = "6")]
         StartGame(super::StartGameEvent),
+        #[prost(message, tag = "7")]
+        ChangeDrawRate(super::ChangeDrawRateEvent),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -173,6 +181,8 @@ pub struct Acknowledge {
 pub struct ServerStartGameEvent {
     #[prost(message, optional, tag = "1")]
     pub prefs: ::core::option::Option<GamePrefs>,
+    #[prost(message, optional, tag = "2")]
+    pub global_deck: ::core::option::Option<GlobalDeck>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -185,7 +195,7 @@ pub struct GameStateChange {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ServerEvent {
-    #[prost(oneof = "server_event::Event", tags = "1, 3, 5, 4")]
+    #[prost(oneof = "server_event::Event", tags = "1, 3, 5, 4, 6")]
     pub event: ::core::option::Option<server_event::Event>,
 }
 /// Nested message and enum types in `ServerEvent`.
@@ -201,6 +211,8 @@ pub mod server_event {
         ServerGameStateAction(i32),
         #[prost(message, tag = "4")]
         StartGame(super::ServerStartGameEvent),
+        #[prost(message, tag = "6")]
+        ChangeDrawRate(super::ChangeDrawRateEvent),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -339,7 +351,6 @@ impl Gender {
 pub enum ClientGameStateAction {
     PauseGame = 0,
     ResumeGame = 1,
-    ChangeDrawRate = 2,
     ResetDrawRate = 3,
 }
 impl ClientGameStateAction {
@@ -351,7 +362,6 @@ impl ClientGameStateAction {
         match self {
             ClientGameStateAction::PauseGame => "PAUSE_GAME",
             ClientGameStateAction::ResumeGame => "RESUME_GAME",
-            ClientGameStateAction::ChangeDrawRate => "CHANGE_DRAW_RATE",
             ClientGameStateAction::ResetDrawRate => "RESET_DRAW_RATE",
         }
     }
@@ -360,7 +370,6 @@ impl ClientGameStateAction {
         match value {
             "PAUSE_GAME" => Some(Self::PauseGame),
             "RESUME_GAME" => Some(Self::ResumeGame),
-            "CHANGE_DRAW_RATE" => Some(Self::ChangeDrawRate),
             "RESET_DRAW_RATE" => Some(Self::ResetDrawRate),
             _ => None,
         }
@@ -437,7 +446,6 @@ impl StateChangeAction {
 pub enum ServerGameStateAction {
     ServerPauseGame = 0,
     ServerResumeGame = 1,
-    ServerChangeDrawRate = 2,
     ServerGameOver = 3,
     ServerNewRound = 4,
 }
@@ -450,7 +458,6 @@ impl ServerGameStateAction {
         match self {
             ServerGameStateAction::ServerPauseGame => "SERVER_PAUSE_GAME",
             ServerGameStateAction::ServerResumeGame => "SERVER_RESUME_GAME",
-            ServerGameStateAction::ServerChangeDrawRate => "SERVER_CHANGE_DRAW_RATE",
             ServerGameStateAction::ServerGameOver => "SERVER_GAME_OVER",
             ServerGameStateAction::ServerNewRound => "SERVER_NEW_ROUND",
         }
@@ -460,7 +467,6 @@ impl ServerGameStateAction {
         match value {
             "SERVER_PAUSE_GAME" => Some(Self::ServerPauseGame),
             "SERVER_RESUME_GAME" => Some(Self::ServerResumeGame),
-            "SERVER_CHANGE_DRAW_RATE" => Some(Self::ServerChangeDrawRate),
             "SERVER_GAME_OVER" => Some(Self::ServerGameOver),
             "SERVER_NEW_ROUND" => Some(Self::ServerNewRound),
             _ => None,

@@ -285,7 +285,6 @@ impl GameState {
     //Make a play. Emits an event describing whether a card was added/deleted to/from the arena, or whether a player's hand was modified.
     pub fn make_play(&mut self, play: Play) -> Result<proto::server_event::Event> {
         let player = play.player;
-
         let event = match play.play {
             Action::Arena(p) => match p {
                 ArenaAction::FromAvailableHand(pile) => {

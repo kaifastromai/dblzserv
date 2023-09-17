@@ -176,8 +176,16 @@ pub struct ServerStartGameEvent {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GameStateChange {
+    #[prost(message, repeated, tag = "1")]
+    pub arena_state_changes: ::prost::alloc::vec::Vec<ArenaStateChange>,
+    #[prost(message, repeated, tag = "2")]
+    pub player_state_changes: ::prost::alloc::vec::Vec<PlayerStateChange>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ServerEvent {
-    #[prost(oneof = "server_event::Event", tags = "1, 2, 3, 4")]
+    #[prost(oneof = "server_event::Event", tags = "1, 3, 5, 4")]
     pub event: ::core::option::Option<server_event::Event>,
 }
 /// Nested message and enum types in `ServerEvent`.
@@ -186,11 +194,11 @@ pub mod server_event {
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Event {
         #[prost(message, tag = "1")]
-        ArenaStateChange(super::ArenaStateChange),
-        #[prost(message, tag = "2")]
-        PlayerStateChange(super::PlayerStateChange),
+        GameStateChange(super::GameStateChange),
         #[prost(message, tag = "3")]
         Acknowledge(super::Acknowledge),
+        #[prost(enumeration = "super::ServerGameStateAction", tag = "5")]
+        ServerGameStateAction(i32),
         #[prost(message, tag = "4")]
         StartGame(super::ServerStartGameEvent),
     }
@@ -237,8 +245,8 @@ pub struct CallBlitz {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Play {
-    #[prost(string, tag = "4")]
-    pub player_id: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "4")]
+    pub player_id: u32,
     #[prost(oneof = "play::Play", tags = "1, 2, 3")]
     pub play: ::core::option::Option<play::Play>,
 }
@@ -364,6 +372,9 @@ pub enum PlayerStateChangeType {
     BlitzPile = 0,
     AvailableHand = 1,
     PostPile = 2,
+    ResetPlayerHand = 3,
+    TransferHandToAvailable = 4,
+    PlayerCallBlitz = 5,
 }
 impl PlayerStateChangeType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -375,6 +386,11 @@ impl PlayerStateChangeType {
             PlayerStateChangeType::BlitzPile => "BLITZ_PILE",
             PlayerStateChangeType::AvailableHand => "AVAILABLE_HAND",
             PlayerStateChangeType::PostPile => "POST_PILE",
+            PlayerStateChangeType::ResetPlayerHand => "RESET_PLAYER_HAND",
+            PlayerStateChangeType::TransferHandToAvailable => {
+                "TRANSFER_HAND_TO_AVAILABLE"
+            }
+            PlayerStateChangeType::PlayerCallBlitz => "PLAYER_CALL_BLITZ",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -383,6 +399,9 @@ impl PlayerStateChangeType {
             "BLITZ_PILE" => Some(Self::BlitzPile),
             "AVAILABLE_HAND" => Some(Self::AvailableHand),
             "POST_PILE" => Some(Self::PostPile),
+            "RESET_PLAYER_HAND" => Some(Self::ResetPlayerHand),
+            "TRANSFER_HAND_TO_AVAILABLE" => Some(Self::TransferHandToAvailable),
+            "PLAYER_CALL_BLITZ" => Some(Self::PlayerCallBlitz),
             _ => None,
         }
     }
@@ -409,6 +428,41 @@ impl StateChangeAction {
         match value {
             "ADD" => Some(Self::Add),
             "REMOVE" => Some(Self::Remove),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ServerGameStateAction {
+    ServerPauseGame = 0,
+    ServerResumeGame = 1,
+    ServerChangeDrawRate = 2,
+    ServerGameOver = 3,
+    ServerNewRound = 4,
+}
+impl ServerGameStateAction {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            ServerGameStateAction::ServerPauseGame => "SERVER_PAUSE_GAME",
+            ServerGameStateAction::ServerResumeGame => "SERVER_RESUME_GAME",
+            ServerGameStateAction::ServerChangeDrawRate => "SERVER_CHANGE_DRAW_RATE",
+            ServerGameStateAction::ServerGameOver => "SERVER_GAME_OVER",
+            ServerGameStateAction::ServerNewRound => "SERVER_NEW_ROUND",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "SERVER_PAUSE_GAME" => Some(Self::ServerPauseGame),
+            "SERVER_RESUME_GAME" => Some(Self::ServerResumeGame),
+            "SERVER_CHANGE_DRAW_RATE" => Some(Self::ServerChangeDrawRate),
+            "SERVER_GAME_OVER" => Some(Self::ServerGameOver),
+            "SERVER_NEW_ROUND" => Some(Self::ServerNewRound),
             _ => None,
         }
     }

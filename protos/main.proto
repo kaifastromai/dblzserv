@@ -121,6 +121,9 @@ enum PlayerStateChangeType{
     BLITZ_PILE=0;
     AVAILABLE_HAND=1;
     POST_PILE=2;
+    RESET_PLAYER_HAND=3;
+    TRANSFER_HAND_TO_AVAILABLE=4;
+    PLAYER_CALL_BLITZ=5;
 }
 enum StateChangeAction{
     ADD=0;
@@ -145,11 +148,23 @@ message ServerStartGameEvent{
     GamePrefs prefs=1;
 
 }
+message GameStateChange{
+    repeated ArenaStateChange arenaStateChanges=1;
+    repeated PlayerStateChange playerStateChanges=2;
+
+}
+enum ServerGameStateAction{
+    SERVER_PAUSE_GAME=0;
+    SERVER_RESUME_GAME=1;
+    SERVER_CHANGE_DRAW_RATE=2;
+    SERVER_GAME_OVER=3;
+    SERVER_NEW_ROUND=4;
+}
 message ServerEvent{
     oneof event{
-        ArenaStateChange arenaStateChange=1;
-        PlayerStateChange playerStateChange=2;
+       GameStateChange gameStateChange=1;
         Acknowledge acknowledge=3;
+        ServerGameStateAction serverGameStateAction=5;
         ServerStartGameEvent startGame=4;
       
     }
@@ -179,6 +194,7 @@ enum ArenaPlayType{
     AVAILABLE_HAND_TO_POST=1;
     TRANSFER_TO_AVAILABLE_HAND=2;
     RESET_HAND=3;
+    
  }
  message ArenaPlay{
     ArenaPlayType playType=1;
@@ -200,7 +216,7 @@ message Play{
        PlayerPlay playerPlay=2;
         CallBlitz callBlitz=3;
     }
-  string player_id=4;
+  uint32 player_id=4;
     
 }
 //Try and join an active session. The face_image_id is the id of the face image that the player wants to use. 

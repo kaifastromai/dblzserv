@@ -2,6 +2,7 @@ pub mod server;
 
 pub mod proto;
 use anyhow::{anyhow, Context, Result};
+use proto::{ArenaStateChange, GameStateChange, PlayerStateChange, ServerGameStateAction};
 use rand::seq::SliceRandom;
 
 ///Represents a card in the game. It is very similar to normal playing cards, with some differences.
@@ -281,17 +282,50 @@ impl GameState {
         Ok(())
     }
 
-    pub fn make_play(&mut self, play: Play) -> Result<()> {
+    //Make a play. Emits an event describing whether a card was added/deleted to/from the arena, or whether a player's hand was modified.
+    pub fn make_play(&mut self, play: Play) -> Result<proto::server_event::Event> {
         let player = play.player;
-        match play.play {
+
+        let event = match play.play {
             Action::Arena(p) => match p {
                 ArenaAction::FromAvailableHand(pile) => {
                     let card = self.players[player as usize].hand.play_from_available()?;
                     self.arena.add_card(pile, card, &mut self.card_context)?;
+                    //emit event
+                    let event = proto::server_event::Event::GameStateChange(GameStateChange {
+                        arena_state_changes: vec![ArenaStateChange {
+                            action: proto::StateChangeAction::Add as i32,
+                            card,
+                            pile_index: pile,
+                        }],
+                        player_state_changes: vec![PlayerStateChange {
+                            player_id: player,
+                            change_type: proto::PlayerStateChangeType::AvailableHand as i32,
+                            action: proto::StateChangeAction::Remove as i32,
+                            card,
+                        }],
+                    });
+                    event
                 }
                 ArenaAction::FromBlitz(pile) => {
                     let card = self.players[player as usize].blitz_pile.play()?;
                     self.arena.add_card(pile, card, &mut self.card_context)?;
+
+                    //emit event
+                    let event = proto::server_event::Event::GameStateChange(GameStateChange {
+                        arena_state_changes: vec![ArenaStateChange {
+                            action: proto::StateChangeAction::Add as i32,
+                            card,
+                            pile_index: pile,
+                        }],
+                        player_state_changes: vec![PlayerStateChange {
+                            player_id: player,
+                            change_type: proto::PlayerStateChangeType::BlitzPile as i32,
+                            action: proto::StateChangeAction::Remove as i32,
+                            card,
+                        }],
+                    });
+                    event
                 }
 
                 ArenaAction::FromPost {
@@ -301,6 +335,21 @@ impl GameState {
                     let card = self.players[player as usize].post_pile.play(post_pile)?;
                     self.arena
                         .add_card(arena_pile, card, &mut self.card_context)?;
+                    //emit event
+                    let event = proto::server_event::Event::GameStateChange(GameStateChange {
+                        arena_state_changes: vec![ArenaStateChange {
+                            action: proto::StateChangeAction::Add as i32,
+                            card,
+                            pile_index: post_pile,
+                        }],
+                        player_state_changes: vec![PlayerStateChange {
+                            player_id: player,
+                            change_type: proto::PlayerStateChangeType::PostPile as i32,
+                            action: proto::StateChangeAction::Remove as i32,
+                            card,
+                        }],
+                    });
+                    event
                 }
             },
             Action::Player(p) => {
@@ -313,22 +362,82 @@ impl GameState {
                             blitz_card,
                             &mut self.card_context,
                         )?;
+                        //emit event
+                        let event = proto::server_event::Event::GameStateChange(GameStateChange {
+                            arena_state_changes: vec![],
+                            player_state_changes: vec![
+                                PlayerStateChange {
+                                    player_id: player,
+                                    change_type: proto::PlayerStateChangeType::BlitzPile as i32,
+                                    action: proto::StateChangeAction::Remove as i32,
+                                    card: blitz_card,
+                                },
+                                PlayerStateChange {
+                                    player_id: player,
+                                    change_type: proto::PlayerStateChangeType::PostPile as i32,
+                                    action: proto::StateChangeAction::Add as i32,
+                                    card: blitz_card,
+                                },
+                            ],
+                        });
+                        event
                     }
                     PlayerAction::AvailableToPost(u32) => {
-                        let cards = self.players[player as usize].hand.play_from_available()?;
+                        let card = self.players[player as usize].hand.play_from_available()?;
                         self.players[player as usize].post_pile.add_card(
                             u32,
-                            cards,
+                            card,
                             &mut self.card_context,
                         )?;
+
+                        //emit event
+                        let event = proto::server_event::Event::GameStateChange(GameStateChange {
+                            arena_state_changes: vec![],
+                            player_state_changes: vec![
+                                PlayerStateChange {
+                                    player_id: player,
+                                    change_type: proto::PlayerStateChangeType::AvailableHand as i32,
+                                    action: proto::StateChangeAction::Remove as i32,
+                                    card: card,
+                                },
+                                PlayerStateChange {
+                                    player_id: player,
+                                    change_type: proto::PlayerStateChangeType::PostPile as i32,
+                                    action: proto::StateChangeAction::Add as i32,
+                                    card: card,
+                                },
+                            ],
+                        });
+                        event
                     }
                     PlayerAction::TransferToAvailable => {
                         self.players[player as usize]
                             .hand
                             .transfer_hand_to_available(self.draw_rate);
+                        let event = proto::server_event::Event::GameStateChange(GameStateChange {
+                            arena_state_changes: vec![],
+                            player_state_changes: vec![PlayerStateChange {
+                                player_id: player,
+                                change_type: proto::PlayerStateChangeType::TransferHandToAvailable
+                                    as i32,
+                                action: proto::StateChangeAction::Remove as i32,
+                                card: 0,
+                            }],
+                        });
+                        event
                     }
                     PlayerAction::ResetHand => {
                         self.players[player as usize].hand.reset_hand();
+                        let event = proto::server_event::Event::GameStateChange(GameStateChange {
+                            arena_state_changes: vec![],
+                            player_state_changes: vec![PlayerStateChange {
+                                player_id: player,
+                                change_type: proto::PlayerStateChangeType::ResetPlayerHand as i32,
+                                action: proto::StateChangeAction::Remove as i32,
+                                card: 0,
+                            }],
+                        });
+                        event
                     }
                 }
             }
@@ -338,6 +447,9 @@ impl GameState {
                     //everything is normal, new round
                     self.score_round();
                     self.new_round()?;
+                    proto::server_event::Event::ServerGameStateAction(
+                        ServerGameStateAction::ServerNewRound as i32,
+                    )
                 } else {
                     let blitzed_players: Vec<u32> = self
                         .players
@@ -354,10 +466,13 @@ impl GameState {
                             .add_score(self.round, p, -(self.blitz_deduction as i32));
                     }
                     self.score_round();
+                    proto::server_event::Event::ServerGameStateAction(
+                        ServerGameStateAction::ServerGameOver as i32,
+                    )
                 }
             }
         };
-        Ok(())
+        Ok(event)
     }
 
     ///Counts up all the cards in the arena, and gives players points depending upon how many cards they played. Called at the end of a round (when blitz is called).

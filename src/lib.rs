@@ -1,5 +1,6 @@
 pub mod server;
 
+pub mod proto;
 use anyhow::{anyhow, Context, Result};
 use rand::seq::SliceRandom;
 
@@ -134,11 +135,13 @@ pub struct GameState {
 }
 impl GameState {
     pub fn new(
-        draw_rate: u32,
-        post_pile_size: u32,
         player_count: u32,
-        score_to_win: u32,
-        blitz_deduction: u32,
+        proto::GamePrefs {
+            draw_rate,
+            post_pile_size,
+            score_to_win,
+            blitz_deduction,
+        }: proto::GamePrefs,
     ) -> Result<GameState> {
         let cards = generate_all_card(player_count);
         let card_context = CardContext::new(cards);
@@ -208,11 +211,13 @@ impl GameState {
 
     pub fn from_build(builder: GameStateBuilder) -> Result<GameState> {
         GameState::new(
-            builder.draw_rate,
-            builder.post_pile_size,
             builder.player_count,
-            builder.score_to_win,
-            builder.blitz_deduction,
+            proto::GamePrefs {
+                post_pile_size: builder.post_pile_size,
+                score_to_win: builder.score_to_win,
+                blitz_deduction: builder.blitz_deduction,
+                draw_rate: builder.draw_rate,
+            },
         )
     }
     pub fn create_player(&self, player_id: u32) -> Result<Player> {
@@ -649,17 +654,19 @@ impl BlitzPile {
 }
 ///There are only four colors in the game: red, blue, green, and yellow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
 pub enum Color {
-    Red,
-    Blue,
-    Green,
-    Yellow,
+    Red = 0,
+    Blue = 1,
+    Green = 2,
+    Yellow = 3,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u32)]
 pub enum Gender {
-    Boy,
-    Girl,
+    Boy = 0,
+    Girl = 1,
 }
 
 ///Genearte all possible cards for this game given the player count.
@@ -677,8 +684,8 @@ pub fn generate_all_card(players: u32) -> Vec<Card> {
     for player in 0..players {
         for n in 0..40 {
             cards[(n + 40 * player) as usize] = Card {
-                player_id: player as u32,
-                number: (n % 10 + 1) as u32,
+                player_id: player,
+                number: (n % 10 + 1),
                 color: colors[((n) / 10) as usize],
                 gender: match n % 2 {
                     0 => Gender::Boy,

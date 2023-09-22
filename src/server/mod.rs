@@ -35,6 +35,8 @@ impl SessionRs {
         }
     }
 }
+type ServerEventChannelTx = tokio::sync::mpsc::Sender<tonic::Result<proto::ServerEvent>>;
+
 ///A session that is either currently waiting to be joined or is already being played
 pub struct Session {
     pub id: String,
@@ -43,12 +45,7 @@ pub struct Session {
     pub is_joinable: bool,
     pub game_state: Option<GameState>,
     pub players: Vec<Player>,
-    pub client_event_channels: Vec<
-        Option<(
-            tokio::sync::mpsc::Sender<tonic::Result<proto::ServerEvent>>,
-            JoinHandle<()>,
-        )>,
-    >,
+    pub client_event_channels: Vec<Option<(ServerEventChannelTx, JoinHandle<()>)>>,
 }
 impl Session {
     pub fn start_game(&mut self, rq: StartGameEvent) -> anyhow::Result<Vec<proto::Card>> {
@@ -116,6 +113,8 @@ impl TryFrom<proto::Play> for crate::Play {
         })
     }
 }
+
+#[derive(Clone)]
 pub struct Server {
     sessions: Arc<DashMap<String, Session>>,
 }
@@ -575,7 +574,7 @@ impl Server {
     }
 }
 #[tonic::async_trait]
-impl proto::session_service_server::SessionService for Arc<Server> {
+impl proto::session_service_server::SessionService for Server {
     async fn get_active_sessions(
         &self,
         _: tonic::Request<()>,
@@ -614,7 +613,7 @@ impl proto::session_service_server::SessionService for Arc<Server> {
 type ResponseStream =
     std::pin::Pin<Box<dyn Stream<Item = Result<ServerEvent, tonic::Status>> + Send>>;
 #[tonic::async_trait]
-impl proto::game_service_server::GameService for Arc<Server> {
+impl proto::game_service_server::GameService for Server {
     type OpenEventStreamStream = ResponseStream;
     async fn open_event_stream(
         &self,

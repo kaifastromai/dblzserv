@@ -9,7 +9,7 @@ use tracing_subscriber;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
-    let server = Arc::new(Server::new());
+    let server = Server::new();
     let session_server =
         blitz::proto::session_service_server::SessionServiceServer::new(server.clone());
     let game_server = blitz::proto::game_service_server::GameServiceServer::new(server);

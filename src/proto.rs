@@ -688,6 +688,29 @@ pub mod session_service_client {
                 .insert(GrpcMethod::new("proto.SessionService", "StartSession"));
             self.inner.unary(req, path, codec).await
         }
+        /// End the given session. Must be called by admin
+        pub async fn end_session(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Player>,
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/proto.SessionService/EndSession",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("proto.SessionService", "EndSession"));
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated client implementations.
@@ -936,6 +959,11 @@ pub mod session_service_server {
             &self,
             request: tonic::Request<super::StartSessionRq>,
         ) -> std::result::Result<tonic::Response<super::Player>, tonic::Status>;
+        /// End the given session. Must be called by admin
+        async fn end_session(
+            &self,
+            request: tonic::Request<super::Player>,
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct SessionServiceServer<T: SessionService> {
@@ -1135,6 +1163,50 @@ pub mod session_service_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = StartSessionSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/proto.SessionService/EndSession" => {
+                    #[allow(non_camel_case_types)]
+                    struct EndSessionSvc<T: SessionService>(pub Arc<T>);
+                    impl<T: SessionService> tonic::server::UnaryService<super::Player>
+                    for EndSessionSvc<T> {
+                        type Response = ();
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Player>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as SessionService>::end_session(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = EndSessionSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

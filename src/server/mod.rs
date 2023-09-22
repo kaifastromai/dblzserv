@@ -127,9 +127,8 @@ impl Server {
     }
     pub fn create_session(&self, rq: proto::StartSessionRq) -> tonic::Result<proto::Player> {
         let session_id = ObjectId::new().to_hex();
-        let player_id = ObjectId::new().to_hex();
         //make sure the username is not blank
-        if rq.username.len() == 0 {
+        if rq.username.is_empty() {
             return Err(tonic::Status::invalid_argument(
                 "Username must not be blank",
             ));
@@ -393,11 +392,22 @@ impl Server {
         event_id: u32,
     ) -> anyhow::Result<()> {
         for player in session.players.iter() {
-            if let Some((tx, _)) =
-                session.client_event_channels[player.player_game_id as usize].as_ref()
+            if let Some((tx, _)) = session
+                .client_event_channels
+                .get(player_id as usize)
+                .with_context(|| {
+                    tracing::error!("Could not send event to client. Invalid player ");
+                    "Could not send event to client. Invalid player "
+                })?
+                .as_ref()
             {
                 if player.player_game_id == player_id {
                     //send acknoledgement to sender
+                    info!(
+                        session.id,
+                        player_id = player_id,
+                        "Sending acknowledgement to client"
+                    );
                     let ack = Acknowledge { event_id };
                     tx.send(Ok(ServerEvent {
                         event: Some(server_event::Event::Acknowledge(ack)),
@@ -406,12 +416,14 @@ impl Server {
                     .unwrap();
                     info!(player_id = player_id, "Sent acknowledgement")
                 }
+                info!(session.id, player_id = player_id, "Sending event to client");
                 tx.send(event.clone().map(|e| ServerEvent { event: Some(e) }))
                     .await
                     .unwrap();
                 info!(player_id = player_id, "Sent event to client");
             }
         }
+        info!(session.id, player_id = player_id, "Event broadcasted");
         Ok(())
     }
     pub async fn send_event_to_client(
@@ -509,6 +521,58 @@ impl Server {
         info!("Returning server channel");
         Ok(server_rx)
     }
+    ///Ends the session that the player is in. Ends game for all players. Can only be called by the session admin
+    pub async fn sv_end_session(&self, player: &proto::Player) -> tonic::Result<()> {
+        info!(
+            player_id = player.player_game_id,
+            session_id = player.session_id,
+            "Trying to end session"
+        );
+        let session_id = &player.session_id;
+        let player_id = player.player_game_id;
+        let mut session = self
+            .sessions
+            .get_mut(session_id)
+            .ok_or_else(|| tonic::Status::not_found("No session found with provided id"))?;
+        info!(session_id, player_id, "Session found");
+        if player_id == 0 {
+            //session admin
+            if session.game_state.is_some() {
+                //send game over event to all players
+                let event = Ok(server_event::Event::ServerGameStateAction(
+                    ServerGameStateAction::ServerGameOver as i32,
+                ));
+                info!(session_id, "Sending game over event to all clients");
+                Self::broadcast_event(event, &session, player_id, 0)
+                    .await
+                    .with_context(|| {
+                        tracing::error!("Could not send events to all clients");
+                        "Could not send sevents to all events"
+                    })
+                    .into_tonic_status()?;
+                info!(session_id, "Game over event sent to all clients");
+                //end game
+                session.game_state = None;
+                //close all join handles
+                for channel in session.client_event_channels.iter_mut().flatten() {
+                    channel.1.abort();
+                }
+                //delete session
+                drop(session);
+                self.sessions.remove(session_id);
+                tracing::info!(session_id, "Session ended successfully");
+            } else {
+                tracing::warn!(session_id, "Session is not in game");
+                return Err(tonic::Status::failed_precondition("Session is not in game"));
+            }
+        } else {
+            tracing::error!(player_id, session_id, "Player is not session admin");
+            return Err(tonic::Status::failed_precondition(
+                "Only the session admin can end the session",
+            ));
+        }
+        Ok(())
+    }
 }
 #[tonic::async_trait]
 impl proto::session_service_server::SessionService for Arc<Server> {
@@ -537,6 +601,14 @@ impl proto::session_service_server::SessionService for Arc<Server> {
         let rq = request.into_inner();
         let player = self.create_session(rq)?;
         Ok(tonic::Response::new(player))
+    }
+    async fn end_session(
+        &self,
+        request: tonic::Request<proto::Player>,
+    ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
+        let player = request.into_inner();
+        self.sv_end_session(&player).await?;
+        Ok(tonic::Response::new(()))
     }
 }
 type ResponseStream =

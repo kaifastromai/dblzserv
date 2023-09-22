@@ -55,6 +55,8 @@ service SessionService{
    //Start a new session that other players can join. The player who starts the session is the session admin. It then returns a Player message
    //with the player_id field set to the player's unique identifier
     rpc StartSession(StartSessionRq) returns (Player);
+    //End the given session. Must be called by admin
+    rpc EndSession(Player) returns (google.protobuf.Empty);
 }
 
 message GamePrefs{

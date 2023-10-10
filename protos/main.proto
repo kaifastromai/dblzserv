@@ -36,12 +36,16 @@ message RegisterPlayerRq{
     Player player=1;
 }
 
+
 message Session{
     string id=1;
     repeated string players=2;
 }
 message SessionRes{
     repeated Session sessions=1;
+}
+message GetSessionRq{
+    string session_id=1;
 }
 //This represents the global deck of the game. This is generated once by the server and sent to the clients once the game starts. The clients keep a local copy of this deck. 
 //All proceeding references to the cards are then returns in indices to this deck
@@ -57,6 +61,7 @@ service SessionService{
     rpc StartSession(StartSessionRq) returns (Player);
     //End the given session. Must be called by admin
     rpc EndSession(Player) returns (google.protobuf.Empty);
+    rpc GetSession(GetSessionRq) returns (Session);
 }
 
 message GamePrefs{
@@ -86,7 +91,7 @@ message StartSessionRq{
 }
 // sent by the client to the server to open the event stream.
 message ClientInitOpenStream{
-    string session_id=1;
+    Player player=1;
 }
 message ChangeDrawRateEvent{
     uint32 new_rate=1;
@@ -178,8 +183,10 @@ message ServerEvent{
 }
 //Handles communication within a game session
 service GameService{
-    //Open the main event stream. This allows the client and server to communicate with each other
-    rpc OpenEventStream(stream ClientEvent) returns (stream ServerEvent);
+    //Open server event stream. This is used to send events to the client
+    rpc OpenEventStream(Player) returns (stream ServerEvent);
+    //Open client event stream. This is used to send events to the server
+    rpc OpenClientEventStream(stream ClientEvent) returns (google.protobuf.Empty);
 }
 
 message ChangeDrawRateRq{

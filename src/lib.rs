@@ -1,6 +1,7 @@
 pub mod server;
 
 pub mod proto;
+mod test;
 use anyhow::{anyhow, Context, Result};
 use proto::{ArenaStateChange, GameStateChange, PlayerStateChange, ServerGameStateAction};
 use rand::seq::SliceRandom;
@@ -311,7 +312,8 @@ impl GameState {
                     self.arena.add_card(pile, card, &mut self.card_context)?;
 
                     //emit event
-                    let event = proto::server_event::Event::GameStateChange(GameStateChange {
+                    
+                    proto::server_event::Event::GameStateChange(GameStateChange {
                         arena_state_changes: vec![ArenaStateChange {
                             action: proto::StateChangeAction::Add as i32,
                             card,
@@ -323,8 +325,7 @@ impl GameState {
                             action: proto::StateChangeAction::Remove as i32,
                             card,
                         }],
-                    });
-                    event
+                    })
                 }
 
                 ArenaAction::FromPost {

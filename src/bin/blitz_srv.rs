@@ -1,14 +1,15 @@
 //!A simple server for "blitz!", a shameless rip off of Dutch Blitz but as a video game.
 
-use std::sync::Arc;
 
-use blitz::proto;
+
 use blitz::server::*;
-use tracing::info;
-use tracing_subscriber;
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    let tracing_subscriber = tracing_subscriber::fmt::Subscriber::builder()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_line_number(true)
+        .finish();
+    tracing::subscriber::set_global_default(tracing_subscriber)?;
     let server = Server::new();
     let session_server =
         blitz::proto::session_service_server::SessionServiceServer::new(server.clone());

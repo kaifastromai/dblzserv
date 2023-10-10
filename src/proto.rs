@@ -49,6 +49,12 @@ pub struct SessionRes {
     #[prost(message, repeated, tag = "1")]
     pub sessions: ::prost::alloc::vec::Vec<Session>,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetSessionRq {
+    #[prost(string, tag = "1")]
+    pub session_id: ::prost::alloc::string::String,
+}
 /// This represents the global deck of the game. This is generated once by the server and sent to the clients once the game starts. The clients keep a local copy of this deck.
 /// All proceeding references to the cards are then returns in indices to this deck
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -99,8 +105,8 @@ pub struct StartSessionRq {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ClientInitOpenStream {
-    #[prost(string, tag = "1")]
-    pub session_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "1")]
+    pub player: ::core::option::Option<Player>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -711,6 +717,28 @@ pub mod session_service_client {
                 .insert(GrpcMethod::new("proto.SessionService", "EndSession"));
             self.inner.unary(req, path, codec).await
         }
+        pub async fn get_session(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetSessionRq>,
+        ) -> std::result::Result<tonic::Response<super::Session>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/proto.SessionService/GetSession",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("proto.SessionService", "GetSession"));
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated client implementations.
@@ -909,10 +937,10 @@ pub mod game_service_client {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
         }
-        /// Open the main event stream. This allows the client and server to communicate with each other
+        /// Open server event stream. This is used to send events to the client
         pub async fn open_event_stream(
             &mut self,
-            request: impl tonic::IntoStreamingRequest<Message = super::ClientEvent>,
+            request: impl tonic::IntoRequest<super::Player>,
         ) -> std::result::Result<
             tonic::Response<tonic::codec::Streaming<super::ServerEvent>>,
             tonic::Status,
@@ -930,10 +958,33 @@ pub mod game_service_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/proto.GameService/OpenEventStream",
             );
-            let mut req = request.into_streaming_request();
+            let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("proto.GameService", "OpenEventStream"));
-            self.inner.streaming(req, path, codec).await
+            self.inner.server_streaming(req, path, codec).await
+        }
+        /// Open client event stream. This is used to send events to the server
+        pub async fn open_client_event_stream(
+            &mut self,
+            request: impl tonic::IntoStreamingRequest<Message = super::ClientEvent>,
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/proto.GameService/OpenClientEventStream",
+            );
+            let mut req = request.into_streaming_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("proto.GameService", "OpenClientEventStream"));
+            self.inner.client_streaming(req, path, codec).await
         }
     }
 }
@@ -964,6 +1015,10 @@ pub mod session_service_server {
             &self,
             request: tonic::Request<super::Player>,
         ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
+        async fn get_session(
+            &self,
+            request: tonic::Request<super::GetSessionRq>,
+        ) -> std::result::Result<tonic::Response<super::Session>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct SessionServiceServer<T: SessionService> {
@@ -1222,6 +1277,52 @@ pub mod session_service_server {
                     };
                     Box::pin(fut)
                 }
+                "/proto.SessionService/GetSession" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetSessionSvc<T: SessionService>(pub Arc<T>);
+                    impl<
+                        T: SessionService,
+                    > tonic::server::UnaryService<super::GetSessionRq>
+                    for GetSessionSvc<T> {
+                        type Response = super::Session;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetSessionRq>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as SessionService>::get_session(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = GetSessionSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
                 _ => {
                     Box::pin(async move {
                         Ok(
@@ -1450,14 +1551,19 @@ pub mod game_service_server {
             >
             + Send
             + 'static;
-        /// Open the main event stream. This allows the client and server to communicate with each other
+        /// Open server event stream. This is used to send events to the client
         async fn open_event_stream(
             &self,
-            request: tonic::Request<tonic::Streaming<super::ClientEvent>>,
+            request: tonic::Request<super::Player>,
         ) -> std::result::Result<
             tonic::Response<Self::OpenEventStreamStream>,
             tonic::Status,
         >;
+        /// Open client event stream. This is used to send events to the server
+        async fn open_client_event_stream(
+            &self,
+            request: tonic::Request<tonic::Streaming<super::ClientEvent>>,
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
     }
     /// Handles communication within a game session
     #[derive(Debug)]
@@ -1544,7 +1650,7 @@ pub mod game_service_server {
                     struct OpenEventStreamSvc<T: GameService>(pub Arc<T>);
                     impl<
                         T: GameService,
-                    > tonic::server::StreamingService<super::ClientEvent>
+                    > tonic::server::ServerStreamingService<super::Player>
                     for OpenEventStreamSvc<T> {
                         type Response = super::ServerEvent;
                         type ResponseStream = T::OpenEventStreamStream;
@@ -1554,7 +1660,7 @@ pub mod game_service_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<tonic::Streaming<super::ClientEvent>>,
+                            request: tonic::Request<super::Player>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
@@ -1581,7 +1687,57 @@ pub mod game_service_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.streaming(method, req).await;
+                        let res = grpc.server_streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/proto.GameService/OpenClientEventStream" => {
+                    #[allow(non_camel_case_types)]
+                    struct OpenClientEventStreamSvc<T: GameService>(pub Arc<T>);
+                    impl<
+                        T: GameService,
+                    > tonic::server::ClientStreamingService<super::ClientEvent>
+                    for OpenClientEventStreamSvc<T> {
+                        type Response = ();
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<tonic::Streaming<super::ClientEvent>>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as GameService>::open_client_event_stream(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = OpenClientEventStreamSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.client_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

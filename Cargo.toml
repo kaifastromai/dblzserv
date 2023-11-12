@@ -27,5 +27,6 @@ prost = "0.12.1"
 flume = { version = "0.11.0", features = ["async"] }
 oneshot = { version = "0.1.6", features = ["async"] }
 console-subscriber = "0.2.0"
+h2 = "0.3.21"
 [build-dependencies]
 tonic-build = { version = "0.10.2", features = ["prost"] }

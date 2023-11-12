@@ -289,30 +289,39 @@ impl GameState {
         let event = match play.play {
             Action::Arena(p) => match p {
                 ArenaAction::FromAvailableHand(pile) => {
-                    let card = self.players[player as usize].hand.play_from_available()?;
-                    self.arena.add_card(pile, card, &mut self.card_context)?;
+                    let play_vtoken = self.players[player as usize]
+                        .hand
+                        .verify_play_from_available()?;
+                    self.arena
+                        .verify_add_card(pile, play_vtoken, &self.card_context)?;
+                    let play_card = self.players[player as usize].hand.play_from_available()?;
+                    self.arena.add_card(pile, play_card, &self.card_context)?;
                     //emit event
-                    let event = proto::server_event::Event::GameStateChange(GameStateChange {
+                    proto::server_event::Event::GameStateChange(GameStateChange {
                         arena_state_changes: vec![ArenaStateChange {
                             action: proto::StateChangeAction::Add as i32,
-                            card,
+                            card: play_card,
                             pile_index: pile,
                         }],
                         player_state_changes: vec![PlayerStateChange {
                             player_id: player,
-                            change_type: proto::PlayerStateChangeType::AvailableHand as i32,
-                            action: proto::StateChangeAction::Remove as i32,
-                            card,
+                            new_hand_pile: None,
+                            new_available_hand: Some(proto::Pile {
+                                cards: self.players[player as usize].hand.available_to_play.clone(),
+                            }),
+                            new_blitz_pile: None,
+                            new_post_pile: None,
                         }],
-                    });
-                    event
+                    })
                 }
                 ArenaAction::FromBlitz(pile) => {
+                    self.players[player as usize].blitz_pile.verify_play()?;
+                    self.arena
+                        .verify_add_card(pile, player, &self.card_context)?;
                     let card = self.players[player as usize].blitz_pile.play()?;
-                    self.arena.add_card(pile, card, &mut self.card_context)?;
-
+                    self.arena.add_card(pile, card, &self.card_context)?;
                     //emit event
-                    
+
                     proto::server_event::Event::GameStateChange(GameStateChange {
                         arena_state_changes: vec![ArenaStateChange {
                             action: proto::StateChangeAction::Add as i32,
@@ -321,9 +330,14 @@ impl GameState {
                         }],
                         player_state_changes: vec![PlayerStateChange {
                             player_id: player,
-                            change_type: proto::PlayerStateChangeType::BlitzPile as i32,
-                            action: proto::StateChangeAction::Remove as i32,
-                            card,
+                            new_hand_pile: Some(proto::Pile {
+                                cards: self.players[player as usize].hand.in_hand.clone(),
+                            }),
+                            new_available_hand: None,
+                            new_blitz_pile: Some(proto::Pile {
+                                cards: self.players[player as usize].blitz_pile.cards.clone(),
+                            }),
+                            new_post_pile: None,
                         }],
                     })
                 }
@@ -332,112 +346,168 @@ impl GameState {
                     post_pile,
                     arena_pile,
                 } => {
-                    let card = self.players[player as usize].post_pile.play(post_pile)?;
+                    let play_vtoken = self.players[player as usize]
+                        .post_pile
+                        .verify_play(post_pile)?;
+                    tracing::info!("Verified play from post pile");
                     self.arena
-                        .add_card(arena_pile, card, &mut self.card_context)?;
+                        .verify_add_card(arena_pile, play_vtoken, &self.card_context)?;
+                    tracing::info!("Verified add to arena");
+                    let card = self.players[player as usize].post_pile.play(post_pile)?;
+                    self.arena.add_card(arena_pile, card, &self.card_context)?;
                     //emit event
-                    let event = proto::server_event::Event::GameStateChange(GameStateChange {
+
+                    proto::server_event::Event::GameStateChange(GameStateChange {
                         arena_state_changes: vec![ArenaStateChange {
                             action: proto::StateChangeAction::Add as i32,
                             card,
-                            pile_index: post_pile,
+                            pile_index: arena_pile,
                         }],
                         player_state_changes: vec![PlayerStateChange {
                             player_id: player,
-                            change_type: proto::PlayerStateChangeType::PostPile as i32,
-                            action: proto::StateChangeAction::Remove as i32,
-                            card,
+                            new_hand_pile: None,
+                            new_available_hand: None,
+                            new_blitz_pile: None,
+                            new_post_pile: Some(proto::PostPile {
+                                piles: self.players[player as usize]
+                                    .post_pile
+                                    .piles
+                                    .iter()
+                                    .map(|p| proto::Pile {
+                                        cards: p.cards.clone(),
+                                    })
+                                    .collect(),
+                            }),
                         }],
-                    });
-                    event
+                    })
                 }
             },
             Action::Player(p) => {
                 match p {
                     PlayerAction::BlitzToPost(p) => {
+                        let play_vtoken = self.players[player as usize].blitz_pile.verify_play()?;
+                        tracing::info!("Verified play from blitz pile");
+                        self.players[player as usize].post_pile.verify_add_card(
+                            p,
+                            play_vtoken,
+                            &self.card_context,
+                        )?;
                         let blitz_card = self.players[player as usize].blitz_pile.play()?;
                         //add to post pile at position p
                         self.players[player as usize].post_pile.add_card(
                             p,
                             blitz_card,
-                            &mut self.card_context,
+                            &self.card_context,
                         )?;
                         //emit event
-                        let event = proto::server_event::Event::GameStateChange(GameStateChange {
+                        proto::server_event::Event::GameStateChange(GameStateChange {
                             arena_state_changes: vec![],
-                            player_state_changes: vec![
-                                PlayerStateChange {
-                                    player_id: player,
-                                    change_type: proto::PlayerStateChangeType::BlitzPile as i32,
-                                    action: proto::StateChangeAction::Remove as i32,
-                                    card: blitz_card,
-                                },
-                                PlayerStateChange {
-                                    player_id: player,
-                                    change_type: proto::PlayerStateChangeType::PostPile as i32,
-                                    action: proto::StateChangeAction::Add as i32,
-                                    card: blitz_card,
-                                },
-                            ],
-                        });
-                        event
+                            player_state_changes: vec![PlayerStateChange {
+                                player_id: player,
+                                new_hand_pile: None,
+                                new_available_hand: None,
+                                new_blitz_pile: Some(proto::Pile {
+                                    cards: self.players[player as usize].blitz_pile.cards.clone(),
+                                }),
+                                new_post_pile: Some(proto::PostPile {
+                                    piles: self.players[player as usize]
+                                        .post_pile
+                                        .piles
+                                        .iter()
+                                        .map(|p| proto::Pile {
+                                            cards: p.cards.clone(),
+                                        })
+                                        .collect(),
+                                }),
+                            }],
+                        })
                     }
-                    PlayerAction::AvailableToPost(u32) => {
+                    PlayerAction::AvailableToPost(p) => {
+                        let play_vtoken = self.players[player as usize]
+                            .hand
+                            .verify_play_from_available()?;
+                        self.players[player as usize].post_pile.verify_add_card(
+                            p,
+                            play_vtoken,
+                            &self.card_context,
+                        )?;
                         let card = self.players[player as usize].hand.play_from_available()?;
                         self.players[player as usize].post_pile.add_card(
-                            u32,
+                            p,
                             card,
-                            &mut self.card_context,
+                            &self.card_context,
                         )?;
 
                         //emit event
-                        let event = proto::server_event::Event::GameStateChange(GameStateChange {
+
+                        proto::server_event::Event::GameStateChange(GameStateChange {
                             arena_state_changes: vec![],
-                            player_state_changes: vec![
-                                PlayerStateChange {
-                                    player_id: player,
-                                    change_type: proto::PlayerStateChangeType::AvailableHand as i32,
-                                    action: proto::StateChangeAction::Remove as i32,
-                                    card: card,
-                                },
-                                PlayerStateChange {
-                                    player_id: player,
-                                    change_type: proto::PlayerStateChangeType::PostPile as i32,
-                                    action: proto::StateChangeAction::Add as i32,
-                                    card: card,
-                                },
-                            ],
-                        });
-                        event
+                            player_state_changes: vec![PlayerStateChange {
+                                new_hand_pile: None,
+                                new_available_hand: Some(proto::Pile {
+                                    cards: self.players[player as usize]
+                                        .hand
+                                        .available_to_play
+                                        .clone(),
+                                }),
+                                new_blitz_pile: None,
+                                new_post_pile: Some(proto::PostPile {
+                                    piles: self.players[player as usize]
+                                        .post_pile
+                                        .piles
+                                        .iter()
+                                        .map(|p| proto::Pile {
+                                            cards: p.cards.clone(),
+                                        })
+                                        .collect(),
+                                }),
+                                player_id: player,
+                            }],
+                        })
                     }
                     PlayerAction::TransferToAvailable => {
-                        self.players[player as usize]
+                        if self.players[player as usize]
                             .hand
-                            .transfer_hand_to_available(self.draw_rate);
-                        let event = proto::server_event::Event::GameStateChange(GameStateChange {
+                            .transfer_hand_to_available(self.draw_rate)
+                            .is_none()
+                        {
+                            //reest hand
+                            self.players[player as usize].hand.reset_hand();
+                        }
+
+                        proto::server_event::Event::GameStateChange(GameStateChange {
                             arena_state_changes: vec![],
                             player_state_changes: vec![PlayerStateChange {
                                 player_id: player,
-                                change_type: proto::PlayerStateChangeType::TransferHandToAvailable
-                                    as i32,
-                                action: proto::StateChangeAction::Remove as i32,
-                                card: 0,
+                                new_hand_pile: Some(proto::Pile {
+                                    cards: self.players[player as usize].hand.in_hand.clone(),
+                                }),
+                                new_available_hand: Some(proto::Pile {
+                                    cards: self.players[player as usize]
+                                        .hand
+                                        .available_to_play
+                                        .clone(),
+                                }),
+                                new_blitz_pile: None,
+                                new_post_pile: None,
                             }],
-                        });
-                        event
+                        })
                     }
                     PlayerAction::ResetHand => {
                         self.players[player as usize].hand.reset_hand();
-                        let event = proto::server_event::Event::GameStateChange(GameStateChange {
+
+                        proto::server_event::Event::GameStateChange(GameStateChange {
                             arena_state_changes: vec![],
                             player_state_changes: vec![PlayerStateChange {
                                 player_id: player,
-                                change_type: proto::PlayerStateChangeType::ResetPlayerHand as i32,
-                                action: proto::StateChangeAction::Remove as i32,
-                                card: 0,
+                                new_hand_pile: Some(proto::Pile {
+                                    cards: self.players[player as usize].hand.in_hand.clone(),
+                                }),
+                                new_available_hand: Some(proto::Pile { cards: vec![] }),
+                                new_blitz_pile: None,
+                                new_post_pile: None,
                             }],
-                        });
-                        event
+                        })
                     }
                 }
             }
@@ -505,6 +575,7 @@ impl GameState {
             self.is_game_over = true;
         }
     }
+
     pub fn change_draw_rate(&mut self, new_rate: u32) {
         self.draw_rate = new_rate;
     }
@@ -553,15 +624,17 @@ impl Pile {
     pub fn from_vec(cards: Vec<u32>, color: Color) -> Pile {
         Pile { cards, color }
     }
-
-    pub fn add_arena_card(&mut self, card_index: u32, context: &mut CardContext) -> Result<()> {
+    pub fn add_arena_card(&mut self, card_index: u32, context: &CardContext) -> Result<()> {
         if self.cards.len() == 10 {
             return Err(anyhow!("Pile is full"));
         }
 
         let card = context.get_card(card_index as usize)?;
         if card.color != self.color {
-            return Err(anyhow!("Card color does not match pile color"));
+            return Err(anyhow!(
+                "Card color {card:?} does not match pile color {pile:?}",
+                pile = self.color
+            ));
         }
 
         if card.number != (self.cards.len() + 1) as u32 {
@@ -574,27 +647,85 @@ impl Pile {
         self.cards.push(card_index);
         Ok(())
     }
-    ///When stacking on the post pile, the card must be the same color, the natural anteceeding number,and the gender must be the opposite of the previous card.
-    pub fn add_post_card(&mut self, card_index: u32, context: &mut CardContext) -> Result<()> {
+    pub fn verify_add_arena_card(&self, card_index: u32, context: &CardContext) -> Result<()> {
         if self.cards.len() == 10 {
             return Err(anyhow!("Pile is full"));
         }
 
         let card = context.get_card(card_index as usize)?;
+
         if card.color != self.color {
-            return Err(anyhow!("Card color does not match pile color"));
+            return Err(anyhow!(
+                "Card color {card:?} does not match pile color {pile:?}",
+                pile = self.color
+            ));
         }
-        let prev_card = context.get_card(self.cards[(self.cards.len() - 1)] as usize)?;
+
+        if card.number != (self.cards.len() + 1) as u32 {
+            tracing::warn!(
+                "Card number {} does not match pile counter {}",
+                card.number,
+                self.cards.len()
+            );
+            return Err(anyhow!(
+                "Card number {} does not match pile counter {}",
+                card.number,
+                self.cards.len()
+            ));
+        }
+        Ok(())
+    }
+    ///When stacking on the post pile, the card must be the same color, the natural anteceding number,and the gender must be the opposite of the previous card.
+    pub fn add_post_card(&mut self, card_index: u32, context: &CardContext) -> Result<()> {
+        if self.cards.len() == 10 {
+            return Err(anyhow!("Pile is full"));
+        }
+        tracing::info!(current_size=self.cards.len(),current_color=?self.color, "Adding card to post pile");
+        let card = context.get_card(card_index as usize)?;
+        if self.cards.is_empty() {
+            self.color = card.color;
+            self.cards.push(card_index);
+            return Ok(());
+        }
+        if card.color != self.color {
+            return Err(anyhow!(
+                "Card color {card:?} does not match pile color {color:?}",
+                color = self.color
+            ));
+        }
+        let prev_card = context.get_card(self.cards[self.cards.len() - 1] as usize)?;
         //genders must not be the same
         if card.gender == prev_card.gender {
             return Err(anyhow!("Genders must alternate"));
         }
         if card.number != (prev_card.number - 1) {
-            return Err(anyhow!("Card number does not match pile counter"));
+            return Err(anyhow!(
+                "Card number {card:?} does not match pile counter {prev_card:?}"
+            ));
         }
+        self.cards.push(card_index);
 
-        self.cards[card.number as usize] = card_index;
+        Ok(())
+    }
+    pub fn verify_add_post_card(&self, card_index: u32, context: &CardContext) -> Result<()> {
+        if self.cards.len() == 10 {
+            return Err(anyhow!("Pile is full"));
+        }
+        let card = context.get_card(card_index as usize)?;
 
+        if !self.cards.is_empty() {
+            let prev_card = context.get_card(self.cards[self.cards.len() - 1] as usize)?;
+            if card.color != self.color {
+                tracing::warn!("Card color {card:?} does not match pile color {prev_card:?}");
+                return Err(anyhow!(
+                    "Card color {card:?} does not match pile color {prev_card:?}"
+                ));
+            }
+            if card.number != (prev_card.number - 1) {
+                tracing::warn!("Card number {card:?} does not match pile counter {prev_card:?}");
+                return Err(anyhow!("Card number does not match pile counter"));
+            }
+        }
         Ok(())
     }
 }
@@ -628,13 +759,14 @@ impl Arena {
         &mut self,
         pile_index: u32,
         card_index: u32,
-        context: &mut CardContext,
+        context: &CardContext,
     ) -> Result<()> {
         //add a card to a pile, or create a new one if the card number==1, in the case of a new pile the number must be 1
-        let card = context.get_card(card_index as usize)?;
+        let card = *context.get_card(card_index as usize)?;
         if card.number == 1 {
             self.piles
                 .push(Pile::from_vec(vec![card_index], card.color));
+            tracing::info!("Added new pile with card {:?} to arena", card);
         } else {
             self.piles
                 .get_mut(pile_index as usize)
@@ -645,7 +777,36 @@ impl Arena {
                     )
                 })?
                 .add_arena_card(card_index, context)?;
+            tracing::info!("Added card {:?} to pile {}", card, pile_index);
         }
+        Ok(())
+    }
+    pub fn verify_add_card(
+        &self,
+        pile_index: u32,
+        card_index: u32,
+        context: &CardContext,
+    ) -> Result<()> {
+        //add a card to a pile, or create a new one if the card number==1, in the case of a new pile the number must be 1
+        let card = *context.get_card(card_index as usize)?;
+        if card.number == 1 {
+            return Ok(());
+        }
+        let pile = self
+            .piles
+            .get(pile_index as usize)
+            .with_context(|| format!("Pile index {} out of bounds", pile_index))?;
+        if pile.cards.len() == 10 {
+            return Err(anyhow!("Pile is full"));
+        }
+
+        if card.color != pile.color {
+            return Err(anyhow!(
+                "Card color {card:?} does not match pile color {pile:?}",
+                pile = pile.color
+            ));
+        }
+        pile.verify_add_arena_card(card_index, context)?;
         Ok(())
     }
 }
@@ -670,11 +831,31 @@ impl PlayerHand {
         }
     }
     ///Transfers from in hand to the available_to_play pile.
-    pub fn transfer_hand_to_available(&mut self, count: u32) -> Vec<u32> {
-        let drawn = self.in_hand.drain(..count as usize);
+    pub fn transfer_hand_to_available(&mut self, count: u32) -> Option<Vec<u32>> {
+        tracing::info!(
+            current_size = self.in_hand.len(),
+            count,
+            "Transferring cards from hand to available"
+        );
+        let removed = count.min(self.in_hand.len() as u32);
+        if removed == 0 {
+            return None;
+        }
+        let start_draw = self.in_hand.len() - removed as usize;
+        let end_draw = self.in_hand.len() - 1;
+        let drawn = self.in_hand.drain(start_draw..=end_draw);
         let vals: Vec<u32> = drawn.collect();
+        tracing::debug!("Added cards to available pile: {vals:?}");
         self.available_to_play.extend(vals.iter());
-        vals
+        Some(vals)
+    }
+    pub fn verify_transfer_hand_to_available(&self, count: u32) -> Result<()> {
+        let removed = count.min(self.in_hand.len() as u32);
+        if removed == 0 {
+            tracing::warn!("No cards to transfer");
+            return Err(anyhow!("No cards to transfer"));
+        }
+        Ok(())
     }
     ///Plays a card from the available pile, and returns the index of the card.
     /// If there are no cards in the available pile, returns an error.
@@ -683,9 +864,16 @@ impl PlayerHand {
             .pop()
             .ok_or_else(|| anyhow!("No available cards to play"))
     }
+    pub fn verify_play_from_available(&self) -> Result<u32> {
+        if self.available_to_play.is_empty() {
+            return Err(anyhow!("No available cards to play"));
+        }
+
+        Ok(self.available_to_play[self.available_to_play.len() - 1])
+    }
+
     pub fn reset_hand(&mut self) {
         self.in_hand.append(&mut self.available_to_play);
-        self.in_hand.clear();
     }
     pub fn clear(&mut self) {
         self.in_hand.clear();
@@ -716,22 +904,39 @@ impl PostPile {
         &mut self,
         pile_index: u32,
         card_index: u32,
-        context: &mut CardContext,
+        context: &CardContext,
     ) -> Result<()> {
         self.piles[pile_index as usize].add_post_card(card_index, context)
     }
-    ///Plays the top card from the post pile. If the card is the last card in the pile, the pile is removed.
+    pub fn verify_add_card(
+        &self,
+        pile_index: u32,
+        card_index: u32,
+        context: &CardContext,
+    ) -> Result<()> {
+        self.piles[pile_index as usize].verify_add_post_card(card_index, context)
+    }
+    ///Plays the top card from the post pile.
     pub fn play(&mut self, pile_index: u32) -> Result<u32> {
         let pile = self
             .piles
             .get_mut(pile_index as usize)
             .ok_or_else(|| anyhow!("Pile index out of bounds"))?;
-        let card = pile.cards.pop().ok_or_else(|| anyhow!("Pile is empty"))?;
-
-        if pile.cards.is_empty() {
-            self.piles.remove(pile_index as usize);
-        }
+        let card = pile.cards.pop().ok_or_else(|| {
+            tracing::warn!("Post pile at index {pile_index} is empty");
+            anyhow!("Pile is empty")
+        })?;
         Ok(card)
+    }
+    pub fn verify_play(&self, pile_index: u32) -> Result<u32> {
+        let pile = self
+            .piles
+            .get(pile_index as usize)
+            .ok_or_else(|| anyhow!("Pile index out of bounds"))?;
+        if pile.cards.is_empty() {
+            return Err(anyhow!("Pile is empty"));
+        }
+        Ok(pile.cards[pile.cards.len() - 1])
     }
     pub fn clear(&mut self) {
         self.piles.clear();
@@ -759,6 +964,12 @@ impl BlitzPile {
             .pop()
             .ok_or_else(|| anyhow!("Blitz pile is empty"))?;
         Ok(card)
+    }
+    pub fn verify_play(&self) -> Result<u32> {
+        if self.cards.is_empty() {
+            return Err(anyhow!("Blitz pile is empty"));
+        }
+        return Ok(self.cards[self.cards.len() - 1]);
     }
     pub fn can_call_blitz(&self) -> bool {
         self.cards.is_empty()

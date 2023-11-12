@@ -12,6 +12,36 @@ pub struct Card {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PlayerHand {
+    #[prost(uint32, repeated, tag = "1")]
+    pub in_hand: ::prost::alloc::vec::Vec<u32>,
+    #[prost(uint32, repeated, tag = "2")]
+    pub available_to_play: ::prost::alloc::vec::Vec<u32>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Pile {
+    #[prost(uint32, repeated, tag = "1")]
+    pub cards: ::prost::alloc::vec::Vec<u32>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PostPile {
+    #[prost(message, repeated, tag = "1")]
+    pub piles: ::prost::alloc::vec::Vec<Pile>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PlayerCards {
+    #[prost(message, optional, tag = "1")]
+    pub hand: ::core::option::Option<PlayerHand>,
+    #[prost(message, optional, tag = "2")]
+    pub post: ::core::option::Option<PostPile>,
+    #[prost(uint32, repeated, tag = "3")]
+    pub blitz_pile: ::prost::alloc::vec::Vec<u32>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Player {
     /// A unique name for the player. Used to track stats outside of a particular session
     #[prost(string, tag = "1")]
@@ -124,7 +154,7 @@ pub struct ClientEvent {
     /// The id of the player who made this event
     #[prost(uint32, tag = "4")]
     pub player_id: u32,
-    #[prost(oneof = "client_event::Event", tags = "1, 2, 5, 6, 7")]
+    #[prost(oneof = "client_event::Event", tags = "1, 2, 5, 6, 7, 8")]
     pub event: ::core::option::Option<client_event::Event>,
 }
 /// Nested message and enum types in `ClientEvent`.
@@ -144,6 +174,8 @@ pub mod client_event {
         StartGame(super::StartGameEvent),
         #[prost(message, tag = "7")]
         ChangeDrawRate(super::ChangeDrawRateEvent),
+        #[prost(message, tag = "8")]
+        Acknowledge(super::Acknowledge),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -164,31 +196,36 @@ pub struct ArenaStateChange {
 pub struct PlayerStateChange {
     #[prost(uint32, tag = "1")]
     pub player_id: u32,
-    /// The type of change that was made
-    #[prost(enumeration = "PlayerStateChangeType", tag = "2")]
-    pub change_type: i32,
-    /// The action that was taken (add or remove)
-    #[prost(enumeration = "StateChangeAction", tag = "3")]
-    pub action: i32,
-    /// The index of the card that was added or removed
-    #[prost(uint32, tag = "4")]
-    pub card: u32,
+    #[prost(message, optional, tag = "6")]
+    pub new_hand_pile: ::core::option::Option<Pile>,
+    #[prost(message, optional, tag = "7")]
+    pub new_available_hand: ::core::option::Option<Pile>,
+    #[prost(message, optional, tag = "8")]
+    pub new_blitz_pile: ::core::option::Option<Pile>,
+    #[prost(message, optional, tag = "9")]
+    pub new_post_pile: ::core::option::Option<PostPile>,
 }
-/// Sent after the server receives a client event. This is used to acknowledge that the server received the event and finished processing it
+/// Sent after the server receives a client event or vice versa. This is used to acknowledge that the server received the event and finished processing it
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Acknowledge {
     /// The id of the event that this is acknowledging
     #[prost(uint32, tag = "1")]
     pub event_id: u32,
+    #[prost(enumeration = "EAcknowledgementType", tag = "2")]
+    pub acknowledgement_type: i32,
+    #[prost(string, tag = "3")]
+    pub message: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ServerStartGameEvent {
+pub struct ServerRequestStartGameEvent {
     #[prost(message, optional, tag = "1")]
     pub prefs: ::core::option::Option<GamePrefs>,
     #[prost(message, optional, tag = "2")]
     pub global_deck: ::core::option::Option<GlobalDeck>,
+    #[prost(message, repeated, tag = "3")]
+    pub player_cards: ::prost::alloc::vec::Vec<PlayerCards>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -198,10 +235,19 @@ pub struct GameStateChange {
     #[prost(message, repeated, tag = "2")]
     pub player_state_changes: ::prost::alloc::vec::Vec<PlayerStateChange>,
 }
+/// Represents a non-critical game play error
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GamePlayError {
+    #[prost(string, tag = "1")]
+    pub message: ::prost::alloc::string::String,
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ServerEvent {
-    #[prost(oneof = "server_event::Event", tags = "1, 3, 5, 4, 6")]
+    #[prost(uint32, tag = "8")]
+    pub event_id: u32,
+    #[prost(oneof = "server_event::Event", tags = "1, 3, 5, 4, 7, 6, 9")]
     pub event: ::core::option::Option<server_event::Event>,
 }
 /// Nested message and enum types in `ServerEvent`.
@@ -216,9 +262,13 @@ pub mod server_event {
         #[prost(enumeration = "super::ServerGameStateAction", tag = "5")]
         ServerGameStateAction(i32),
         #[prost(message, tag = "4")]
-        StartGame(super::ServerStartGameEvent),
-        #[prost(message, tag = "6")]
+        RequestStartGame(super::ServerRequestStartGameEvent),
+        #[prost(message, tag = "7")]
         ChangeDrawRate(super::ChangeDrawRateEvent),
+        #[prost(message, tag = "6")]
+        ConfirmGameStart(super::ServerRequestStartGameEvent),
+        #[prost(message, tag = "9")]
+        GamePlayError(super::GamePlayError),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -348,6 +398,32 @@ impl Gender {
         match value {
             "BOY" => Some(Self::Boy),
             "GIRL" => Some(Self::Girl),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum EAcknowledgementType {
+    Accepted = 0,
+    Rejected = 1,
+}
+impl EAcknowledgementType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            EAcknowledgementType::Accepted => "Accepted",
+            EAcknowledgementType::Rejected => "Rejected",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "Accepted" => Some(Self::Accepted),
+            "Rejected" => Some(Self::Rejected),
             _ => None,
         }
     }

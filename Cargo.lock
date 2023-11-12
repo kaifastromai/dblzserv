@@ -181,6 +181,7 @@ dependencies = [
  "console-subscriber",
  "dashmap",
  "flume",
+ "h2",
  "mongodb",
  "oneshot",
  "prost",

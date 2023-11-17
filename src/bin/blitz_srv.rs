@@ -1,7 +1,5 @@
 //!A simple server for "blitz!", a shameless rip off of Dutch Blitz but as a video game.
 
-
-
 use blitz::server::*;
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
@@ -14,7 +12,7 @@ async fn main() -> anyhow::Result<()> {
     let session_server =
         blitz::proto::session_service_server::SessionServiceServer::new(server.clone());
     let game_server = blitz::proto::game_service_server::GameServiceServer::new(server);
-    let addr = "[::1]:50051";
+    let addr = "0.0.0.0:50051";
     tracing::info!("Starting game server on port 50051");
     tonic::transport::Server::builder()
         .add_service(session_server)
